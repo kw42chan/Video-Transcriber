@@ -49,7 +49,7 @@ track = track[:int(round(dur * SR))]
 peak = float(np.max(np.abs(track))) or 1.0
 track = (track / peak * 10 ** (-1 / 20)).astype(np.float32)  # peak-normalise to -1 dBFS for fair A/B
 tmp = f"{clip_dir}/_{vendor}_raw.f32"; track.tofile(tmp)
-wav = f"{clip_dir}/{vendor}_yue.wav"; mp3 = f"{clip_dir}/{vendor}_yue.mp3"; mp4 = f"{clip_dir}/clip_A_yue_{vendor}.mp4"
+wav = f"{clip_dir}/{vendor}_yue.wav"; mp3 = f"{clip_dir}/{vendor}_yue.mp3"; mp4 = f"{clip_dir}/{os.path.basename(os.path.normpath(clip_dir))}_yue_{vendor}.mp4"
 ff("-f", "f32le", "-ar", str(SR), "-ac", "1", "-i", tmp, "-c:a", "pcm_s16le", wav); os.remove(tmp)
 ff("-i", wav, "-c:a", "libmp3lame", "-b:a", "192k", mp3)
 ff("-i", video, "-i", wav, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-ar", str(SR), "-t", f"{dur:.3f}", "-movflags", "+faststart", mp4)

@@ -22,6 +22,7 @@ const SYSTEM = `你係香港廣東話配音翻譯。將英文逐段翻成「香�
 - 必須係香港人日常講嘢嘅口語：用 係／唔係／嘅／咗／緊／嘢／咁／啦／囉／喎／㗎／佢哋／啲／冇 等，自然加語氣詞，但唔好堆砌。
 - 唔准用書面語或普通話：唔好用「的、了、是、很、什麼、怎麼、這、那、我們、你們、他們、沒有、在（表進行）、嗎（除非自然）」。
 - 英文品牌／科技名詞保持英文（例如 autopilot 可以保留英文，如果香港人通常咁講）。
+- 金額同數字用中文寫出嚟方便配音讀（例如 $140 → 一百四十蚊；$20 a month → 每個月二十蚊），網址保留英文。
 - 每段要喺大約同英文一樣嘅時間內講完：每段有 max_chars（中文字數上限，標點唔計，英文字一個算約2字），唔可以超過；寧願精簡意思，唔好逐字直譯。
 - 段與段之間可以銜接（例如上一段係「下次你…」，下一段接住講），但每段內容要對應返嗰段英文，唔好將內容搬去第二段。
 - 只輸出 JSON：{"segments":[{"id":1,"yue":"..."}, ...]}，唔好有其他文字。`;
@@ -50,7 +51,7 @@ const outSegs = segs.map((s) => ({ ...s, yue: byId[s.id] || '', yue_chars: charC
 const out = { meta: { model, latency_ms: Date.now() - t0, usage: body.usage || null, generated_at: new Date().toISOString() }, segments: outSegs };
 fs.writeFileSync(path.join(dir, 'yue_segments.json'), JSON.stringify(out, null, 2));
 const fmt = (t) => { const m = Math.floor(t / 60), s = (t % 60).toFixed(2).padStart(5, '0'); return `${String(m).padStart(2, '0')}:${s}`; };
-let md = `# clip_A — EN → 香港口語 script (for review)\n\nModel: \`${model}\` via OpenRouter · ASR: faster-whisper medium.en (chunked)\n\n| # | Time | EN | 口語 | len / max |\n| --- | --- | --- | --- | --- |\n`;
+let md = `# ${path.basename(path.resolve(dir))} — EN → 香港口語 script (for review)\n\nModel: \`${model}\` via OpenRouter · ASR: faster-whisper medium.en (chunked)\n\n| # | Time | EN | 口語 | len / max |\n| --- | --- | --- | --- | --- |\n`;
 for (const s of outSegs) md += `| ${s.id} | ${fmt(s.start)}–${fmt(s.end)} | ${s.en} | ${s.yue} | ${s.yue_spoken_len}/${s.maxChars}${s.yue_spoken_len > s.maxChars ? ' ⚠️' : ''} |\n`;
 fs.writeFileSync(path.join(dir, 'yue_script.md'), md);
 log(`model=${model} usage=${JSON.stringify(body.usage || {})}`);

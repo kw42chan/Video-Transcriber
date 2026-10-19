@@ -1,4 +1,10 @@
-# Phase 0 Day 1 — Offline TTS A/B (EN → HK 口語 voice clone)
+# Phase 0 — EN → HK 口語 Cantonese video dubbing spike
+
+> **Day 1 result:** Canto-Gen won the TTS A/B. **ElevenLabs and MiniMax are dropped** from the pipeline — their scripts (`tts-elevenlabs.mjs`, `tts-minimax.mjs`) stay in the repo for reference only; don't put keys in for them.
+>
+> **Day 2:** lip sync — see [Day 2 — lip sync](#day-2--lip-sync) below.
+
+## Day 1 — Offline TTS A/B (EN → HK 口語 voice clone)
 
 **Scope:** offline harness only. **No lip sync. No product UI.**
 
@@ -12,8 +18,10 @@ Goal: once Darwin drops **3 clips + voice refs + API keys**, one command runs EN
 | --- | --- |
 | `OPENROUTER_API_KEY` | **Present** (injected) — translation can run |
 | `CANTO_GEN_API_KEY` / `CANTOGEN_API_KEY` | Not set — add to `.env` |
-| `ELEVENLABS_API_KEY` | Not set — add to `.env` |
-| `MINIMAX_API_KEY` / `MINIMAX_GROUP_ID` | Not set — add to `.env` |
+| `ELEVENLABS_API_KEY` | Dropped after Day 1 — not needed |
+| `MINIMAX_API_KEY` / `MINIMAX_GROUP_ID` | Dropped after Day 1 — not needed |
+| `SYNCLABS_API_KEY` (Day 2) | Not set — add to `.env` |
+| `FAL_KEY` (Day 2, fallback) | Not set — optional |
 
 Do **not** invent keys. Paid TTS APIs are only called when the corresponding key is present; missing vendors are skipped and noted in the scorecard.
 
@@ -115,6 +123,61 @@ node scripts/run-ab.mjs --vendors canto-gen,minimax
 6. **Canto-Gen text &gt; 500 chars**  
    Async jobs reject over-limit (`text_too_long`). Keep each clip’s `yue.txt` ≤500 characters or split.
 
+## Day 2 — lip sync
+
+Primary: **Sync Labs** (`lipsync-2`, `scripts/lipsync-synclabs.mjs`). Fallback: **MuseTalk on Fal** (`scripts/lipsync-musetalk.mjs`). Both are plain Node 20 `fetch` — no npm install. API details: `docs/vendor-notes.md` §5–6.
+
+**Env (`.env`, chmod 600):** `SYNCLABS_API_KEY` (alias `SYNC_API_KEY`), `FAL_KEY`. Placeholders are in `.env.example`.
+
+> ⚠️ **clip_A is a poor lip-sync subject:** it is an illustrated explainer with voice-over. The only face is a small illustrated character at ~0–6 s; the rest is faceless (corridor figure, diagrams, feet). Expect Sync Labs to pass most frames through unchanged or reject the job. A real talking-head clip is needed to judge lip-sync quality — the 20 s test on clip_A mainly proves the pipeline end to end.
+
+### 1. Cut a ≤20 s test pair (already done for clip_A)
+
+```bash
+node scripts/cut-lipsync-test.mjs --clip clip_A --vendor canto-gen --start 0 --duration 20
+# → out/clip_A/lipsync_test20/{video.mp4 (no audio), audio.wav, pair.json}
+```
+
+### 2. Free-tier 20 s test (Sync Labs, US$0)
+
+```bash
+node scripts/lipsync-synclabs.mjs --video out/clip_A/lipsync_test20/video.mp4 \
+  --audio out/clip_A/lipsync_test20/audio.wav \
+  --out out/clip_A/lipsync_test20/synclabs_lipsync-2.mp4 --free-tier --dry-run   # drop --dry-run to submit
+```
+
+### 3. Full run (72.5 s, needs the ~US$5 Sync plan)
+
+```bash
+node scripts/lipsync-synclabs.mjs --video inputs/clip_A.mp4 --audio out/clip_A/canto-gen_yue.wav \
+  --out out/clip_A/clip_A_yue_canto-gen_lipsync-2.mp4 --dry-run                   # drop --dry-run to submit
+```
+
+Fallback (Fal MuseTalk) uses the same flags:
+
+```bash
+node scripts/lipsync-musetalk.mjs --video out/clip_A/lipsync_test20/video.mp4 \
+  --audio out/clip_A/lipsync_test20/audio.wav --out out/clip_A/lipsync_test20/musetalk.mp4 --dry-run
+```
+
+### Flags (both scripts)
+
+| Flag | Meaning |
+| --- | --- |
+| `--video` / `--audio` | Local inputs (uploaded by the script) |
+| `--out` | Output mp4 (a `.json` with job id / latency / estimate goes next to it) |
+| `--start` / `--duration` | Trim both inputs from the same start time before upload |
+| `--video-url` / `--audio-url` | Use public URLs instead of uploading (pass `--duration` so cost can be estimated) |
+| `--dry-run` | Print estimate + planned request; **no key needed, no network, no spend** |
+| `--model` (Sync) | `lipsync-2` (default), `lipsync-2-pro`, `sync-3`, `lipsync-1.9.0-beta`, `react-1` |
+| `--sync-mode` (Sync) | `cut_off` (default), `bounce`, `loop`, `silence`, `remap` |
+| `--upload` | Sync: `multipart` (default, direct file upload) / `assets` (presigned upload → assetId). Fal: `storage` (default, Fal CDN) / `datauri` |
+| `--free-tier` (Sync) | Account is on the free plan: requires ≤20 s (≤15 s sync-3), counted as US$0 |
+
+### Spend guard
+
+Every run prints a cost estimate first (Sync ≈ US$0.05/s + US$5 plan the first time a paid run happens; Fal placeholder US$0.05/s). Both scripts **refuse to submit** if the estimate would push cumulative spend in `out/spend.json` over **US$20** (cap is `cap_usd` in that file; seeded with Day 1 ≈ US$0.12). Each submission is appended to `out/spend.json`. Before a paid Sync submit, the script also asks Sync's free estimate endpoint and uses the higher number.
+
 ## Vendor quick links
 
 | Vendor | Docs | Notes file |
@@ -123,6 +186,8 @@ node scripts/run-ab.mjs --vendors canto-gen,minimax
 | ElevenLabs v4 | https://elevenlabs.io/docs/overview/capabilities/text-to-speech/eleven-v4 | §2 |
 | MiniMax T2A | https://platform.minimax.io/docs/api-reference/speech-t2a-http | §3 |
 | MiniMax clone | https://platform.minimax.io/docs/api-reference/voice-cloning-clone | §3 |
+| Sync Labs (lip sync) | https://sync.so/docs | §5 |
+| Fal MuseTalk (lip sync fallback) | https://fal.ai/models/fal-ai/musetalk/api | §6 |
 
 ## Success definition
 

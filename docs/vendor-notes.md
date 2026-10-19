@@ -1,4 +1,6 @@
-# Vendor API notes (verified 2026-10-18)
+# Vendor API notes (TTS verified 2026-10-18; lip sync verified 2026-10-19)
+
+> Day 1 outcome: **Canto-Gen won**; ElevenLabs and MiniMax are dropped (notes kept for reference).
 
 Offline harness summary of auth, clone upload, TTS request shape, free-tier limits, and Cantonese confirmation. Sources fetched from official docs.
 
@@ -54,7 +56,7 @@ Content-Type: application/json
 
 ---
 
-## 2. ElevenLabs — `https://api.elevenlabs.io`
+## 2. ElevenLabs — `https://api.elevenlabs.io` (DROPPED after Day 1)
 
 **Cantonese confirmed:** Yes on **Eleven v4** — language list includes **Cantonese (`yue`)**. Use `language_code: "yue"` (ISO 639-3; not supported on `eleven_multilingual_v2`).
 
@@ -105,7 +107,7 @@ Content-Type: application/json
 
 ---
 
-## 3. MiniMax Speech T2A — `https://api.minimax.io`
+## 3. MiniMax Speech T2A — `https://api.minimax.io` (DROPPED after Day 1)
 
 **Cantonese confirmed:** Yes — set `language_boost: "Chinese,Yue"`. System Cantonese voices include:
 - `Cantonese_GentleLady`
@@ -205,3 +207,64 @@ Content-Type: application/json
 | Text cap (harness) | 500 async | Large | &lt;10k |
 | Auth style | Bearer | `xi-api-key` | Bearer (+ optional GroupId) |
 | Mandarin trap | Low (Canto-native) | Possible if wrong model/lang | **High if HK Flight Attendant** |
+
+---
+
+# Day 2 — lip sync
+
+## 5. Sync Labs (sync.so) — primary
+
+Sources: https://sync.so/docs, https://sync.so/docs/openapi.json, /docs/free-trial, /docs/api-reference/api/generate-api/*.
+
+| Item | Value |
+| --- | --- |
+| Base URL | `https://api.sync.so` |
+| Auth | **`x-api-key: $SYNCLABS_API_KEY`** (docs/SDK name: `SYNC_API_KEY`; harness accepts either) |
+| Models | `sync-3` (API default, 4K, ~US$0.133/s), `lipsync-2` (harness default, 512² face, ≈US$0.05/s), `lipsync-2-pro`, `lipsync-1.9.0-beta` (from ~US$0.02/s), `react-1` |
+| Inputs | MP4 video + WAV/MP3 audio, via **direct multipart upload**, **public URL**, or **assetId** |
+| Free tier | **3 lip-sync gens/month, ≤20 s each** (sync-3: 1 of the 3, ≤15 s). No card. **Watermarked output.** Doesn't roll over. |
+| Paid | Hobbyist (no duration cap, still watermarked), Creator+ removes watermark. Harness assumes ~US$5 plan for the 72.5 s full run. |
+
+### Upload: no public URL needed
+1. **Multipart (harness default):** `POST /v2/generate` as `multipart/form-data` with file fields `video`, `audio`, plus `model`, and nested `options` as a **JSON string**. Files are saved as assets automatically. Parser up to 5 GiB/file, but plan and proxy limits are lower (`413` / `422 file_size_exceeds_plan_limit`).
+2. **Assets (`--upload assets`):** `POST /v2/assets/upload {fileName,contentType,size}` → `{uploadUrl,url,expiresIn}` → `PUT uploadUrl` (same Content-Type) → `POST /v2/assets {url,type:"VIDEO"|"AUDIO"}` → `id` → `POST /v2/generate` JSON with `input:[{type:"video",assetId},{type:"audio",assetId}]`. Use this for large files and retries.
+3. **URLs (`--video-url/--audio-url`):** JSON `POST /v2/generate {model, input:[{type:"video",url},{type:"audio",url}], options}`.
+
+### Job lifecycle
+- Create → `201 { id, status }`. Optional `Idempotency-Key` header for safe retries.
+- Poll `GET /v2/generate/{id}` → `status` ∈ `PENDING|PROCESSING|COMPLETED|FAILED|REJECTED`; on success `outputUrl`, `outputDuration`; on failure `error`, `errorCode`.
+- Download `outputUrl`, or `GET /v2/generations/{id}/download` → **text/plain** signed URL (fetch it **without** the API key). Free plans get the watermarked file.
+- `webhookUrl` is supported. The harness polls instead, every 10 s with a 30 min timeout.
+- Cost pre-check: `POST /v2/generations/estimate {model,duration,fps}` → `estimatedGenerationCost` (USD). The harness calls it before a paid submit, never in `--dry-run`.
+
+### Options worth knowing
+- `options.sync_mode`: `bounce` (API default) | `loop` | `cut_off` (harness default; pair is the same length) | `silence` | `remap`.
+- `options.temperature` 0–1 (expressiveness, default 0.5), `active_speaker_detection`, `occlusion_detection_enabled`.
+
+### Harness mapping
+- Env `SYNCLABS_API_KEY` (or `SYNC_API_KEY`), optional `SYNCLABS_MODEL`, `SYNCLABS_USD_PER_SEC`, `SYNCLABS_PLAN_USD`.
+- Script `scripts/lipsync-synclabs.mjs` (writes `<out>.json` with generation id, latency and estimate).
+
+## 6. MuseTalk on Fal — fallback
+
+Sources: https://fal.ai/models/fal-ai/musetalk/api, https://docs.fal.ai/model-apis/model-endpoints/queue, `@fal-ai/client` 1.10.1 storage source.
+
+| Item | Value |
+| --- | --- |
+| Model id | `fal-ai/musetalk` |
+| Auth | **`Authorization: Key $FAL_KEY`** |
+| Input | `{ "source_video_url": "...", "audio_url": "..." }`, both required. Public URL or base64 **data URI**. |
+| Output | `{ "video": { "url", "content_type", "file_name", "file_size" } }` (`fal.media` URLs expire, so download right away) |
+| Submit | `POST https://queue.fal.run/fal-ai/musetalk` → `{request_id, status_url, response_url, cancel_url}` |
+| Poll | `GET status_url` → `IN_QUEUE` / `IN_PROGRESS` / `COMPLETED` (`error`, `error_type` if failed; `metrics.inference_time`) |
+| Result | `GET response_url` |
+| Upload | `POST https://rest.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3 {content_type,file_name}` → `{upload_url,file_url}` → `PUT upload_url`. This is the same flow `fal.storage.upload` uses; >90 MB uses multipart, which the harness doesn't need. |
+| Price | Billed per GPU compute-second. The model page shows no fixed per-video rate, so the harness uses a conservative **US$0.05/s of output** placeholder (`FAL_MUSETALK_USD_PER_SEC`). |
+| Free tier | None specific to MuseTalk. Fal sometimes gives new accounts small credits. |
+| Quality | Open-source, 256² face region, real-time. Weaker than lipsync-2 on mouth detail and teeth. Use it only if Sync is blocked. |
+
+### Harness mapping
+- Env `FAL_KEY`. Script `scripts/lipsync-musetalk.mjs`.
+
+## Lip-sync caveat for clip_A
+clip_A is an illustrated explainer with voice-over, not a talking head. The only face is a small cartoon character at ~0–6 s. Both vendors need a detectable face, so faceless frames are passed through or the job is rejected. Use a talking-head clip to actually judge lip-sync quality.

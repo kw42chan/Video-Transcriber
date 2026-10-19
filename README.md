@@ -21,7 +21,7 @@ Goal: once Darwin drops **3 clips + voice refs + API keys**, one command runs EN
 | `ELEVENLABS_API_KEY` | Dropped after Day 1 — not needed |
 | `MINIMAX_API_KEY` / `MINIMAX_GROUP_ID` | Dropped after Day 1 — not needed |
 | `SYNCLABS_API_KEY` (Day 2) | Not set — add to `.env` |
-| `FAL_KEY` (Day 2, fallback) | Not set — optional |
+| `FAL_KEY` (Day 2, fallback) | Set in the box environment (Day 2c); scripts read env first, then `.env` |
 
 Do **not** invent keys. Paid TTS APIs are only called when the corresponding key is present; missing vendors are skipped and noted in the scorecard.
 
@@ -158,6 +158,13 @@ Fallback (Fal MuseTalk) uses the same flags:
 ```bash
 node scripts/lipsync-musetalk.mjs --video out/clip_A/lipsync_test20/video.mp4 \
   --audio out/clip_A/lipsync_test20/audio.wav --out out/clip_A/lipsync_test20/musetalk.mp4 --dry-run
+```
+
+LatentSync on Fal (Day 2c): same flags plus `--max-usd`, `--guidance-scale`, `--seed`. US$0.20 flat ≤40 s. **Every frame must contain a face**, so cut out faceless B-roll first. See `docs/vendor-notes.md` §7.
+
+```bash
+node scripts/lipsync-latentsync.mjs --video out/clip_B/lipsync_test20/video.mp4 \
+  --audio out/clip_B/lipsync_test20/audio.wav --out out/clip_B/lipsync_test20/latentsync.mp4 --max-usd 0.5 --dry-run
 ```
 
 ### Flags (both scripts)

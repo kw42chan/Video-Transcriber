@@ -268,3 +268,26 @@ Sources: https://fal.ai/models/fal-ai/musetalk/api, https://docs.fal.ai/model-ap
 
 ## Lip-sync caveat for clip_A
 clip_A is an illustrated explainer with voice-over, not a talking head. The only face is a small cartoon character at ~0–6 s. Both vendors need a detectable face, so faceless frames are passed through or the job is rejected. Use a talking-head clip to actually judge lip-sync quality.
+
+## 7. LatentSync on Fal — Day 2c comparison
+
+Sources: live queue OpenAPI `https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=fal-ai/latentsync`, model page https://fal.ai/models/fal-ai/latentsync (both read 2026-10-19).
+
+| Item | Value |
+| --- | --- |
+| Model id | `fal-ai/latentsync` (ByteDance LatentSync, audio-conditioned latent diffusion) |
+| Auth / upload / queue | Same as MuseTalk (§6): `Authorization: Key $FAL_KEY`, fal storage upload, `queue.fal.run` submit → poll → result |
+| Input | `{ video_url, audio_url }` required; optional `guidance_scale` (1–2, default 1), `seed`, `loop_mode` (`pingpong`/`loop`, used when audio is longer than video), `enable_safety_checker` |
+| Output | `{ video: File }` |
+| Price | **US$0.20 flat per video ≤40 s**, then US$0.005 per output second |
+| Script | `scripts/lipsync-latentsync.mjs` (wrapper) = `scripts/lipsync-musetalk.mjs --model latentsync`. `--max-usd` sets a per-run hard cap |
+| Gotcha | **Needs a detectable face in every frame.** The clip_B 0–20 s pair (with faceless B-roll at 6.2–8.3 s and 14.4–16.5 s) came back `422 face_detection_error` after about 4.5 min (request `01a15468-e1da-7302-9eb9-252fc83cc0d9`). Fal FAQ: 422 input errors *may* be billed if GPU time was spent. Feed face-only spans (or split at cuts and lip-sync only the face shots), unlike Sync Labs, which passes faceless frames through |
+
+`FAL_KEY` is read from `process.env` first, then `.env`. It is never printed.
+
+### LatentSync face-only workflow (clip_B, Day 2c retry)
+1. Join only the face shots. Cut at the exact scene-cut frames with a 3-frame safety trim at each side, both video (`select=between(n,…)`) and the matching dubbed-audio sample ranges.
+2. `node scripts/lipsync-latentsync.mjs --video faceonly/video.mp4 --audio faceonly/audio.wav --out faceonly/latentsync_faceonly.mp4 --max-usd 0.5`
+3. `python scripts/latentsync_faceonly_reassemble.py <pair_dir> faceonly/latentsync_faceonly.mp4 0-371,498-863,990-1199 <pair_dir>/latentsync.mp4` puts the faceless shots back from the original and muxes the dubbed audio.
+
+Observed output: always **25 fps**; **truncated to a multiple of 16 frames** (15.8 s in → 15.36 s out, so the last ~0.44 s is unsynced); about **58 ms content lag** vs its own audio (it shows a pre-cut frame for ~3 source frames after hard cuts; the reassembler substitutes originals there). Billing came back in the result header `x-fal-billable-units: 40` (= US$0.20). Request `01a1546e-a721-7812-9c7f-db123be8f7ce`.

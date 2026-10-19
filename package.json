@@ -1,0 +1,17 @@
+{
+  "name": "phase0-cantonese-tts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Phase 0 Day 1 offline TTS A/B harness for EN→HK 口語 Cantonese voice clone",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "translate": "node scripts/translate-to-hk-kouyu.mjs",
+    "tts:canto-gen": "node scripts/tts-canto-gen.mjs",
+    "tts:elevenlabs": "node scripts/tts-elevenlabs.mjs",
+    "tts:minimax": "node scripts/tts-minimax.mjs",
+    "ab": "node scripts/run-ab.mjs"
+  }
+}

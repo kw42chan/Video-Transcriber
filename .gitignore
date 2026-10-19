@@ -1,0 +1,15 @@
+node_modules/
+.env
+out/*
+!out/.gitkeep
+clips/*/
+!clips/README.md
+refs/*
+!refs/README.md
+*.mp3
+*.wav
+
+inputs/
+.venv-asr/
+__pycache__/
+*.mp4

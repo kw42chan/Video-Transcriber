@@ -1,4 +1,26 @@
-# Phase 0 — EN → HK 口語 Cantonese video dubbing spike
+# Sidecar — Cantonese video dubbing workspace
+
+Sidecar pairs a browser workspace with the original local dubbing scripts in `scripts/`. The web MVP provides Google sign-in, private project records and source-video upload. Transcription, Cantonese translation, TTS, alignment and lip-sync remain separately runnable CLI stages; the dashboard currently records projects and their source files but does not yet launch those scripts as background jobs.
+
+## Web workspace setup
+
+The app uses Vite, Supabase Auth (Google OAuth), Supabase Postgres with row-level security, and private Supabase Storage buckets. No Supabase service-role key belongs in the browser or `.env`.
+
+1. Create a Supabase project and copy `.env.example` to `.env`. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from the project's API settings.
+2. In Supabase SQL Editor, run [`supabase/migrations/202610290001_initial_schema.sql`](supabase/migrations/202610290001_initial_schema.sql). It creates user profiles, projects, workflow stages, voice references, output metadata, private storage buckets, and owner-scoped RLS policies.
+3. In Supabase Authentication, enable Google. Create a Google OAuth client in Google Cloud, add its client ID and secret to the Supabase Google provider, and add the Supabase callback URL shown there to the Google OAuth client's authorized redirect URIs. Add the local app origin (`http://127.0.0.1:5173`) to Supabase's allowed redirect URLs.
+4. Install dependencies and start the app:
+   ```bash
+   npm install
+   npm run dev
+   ```
+5. Open the local URL printed by Vite and choose **Continue with Google**.
+
+Projects and uploaded source videos are scoped to the signed-in user. Source uploads go into a private bucket; browser access uses the public anon key plus the user's session and storage policies. Keep provider API keys for transcription, translation, voice generation and lip-sync on a future server-side worker, never in `VITE_*` variables.
+
+The frontend reads existing project rows from the database and can create a project with an optional source-video upload. Other navigation items and stage execution are intentionally marked as coming next rather than presented as working features.
+
+## Current dubbing scripts
 
 > **Day 1 result:** Canto-Gen won the TTS A/B. **ElevenLabs and MiniMax are dropped** from the pipeline — their scripts (`tts-elevenlabs.mjs`, `tts-minimax.mjs`) stay in the repo for reference only; don't put keys in for them.
 >

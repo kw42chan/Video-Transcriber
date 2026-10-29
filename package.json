@@ -8,6 +8,9 @@
     "node": ">=20"
   },
   "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
     "translate": "node scripts/translate-to-hk-kouyu.mjs",
     "tts:canto-gen": "node scripts/tts-canto-gen.mjs",
     "tts:elevenlabs": "node scripts/tts-elevenlabs.mjs",
@@ -16,5 +19,11 @@
     "lipsync:cut": "node scripts/cut-lipsync-test.mjs",
     "lipsync:synclabs": "node scripts/lipsync-synclabs.mjs",
     "lipsync:musetalk": "node scripts/lipsync-musetalk.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.57.0"
+  },
+  "devDependencies": {
+    "vite": "^7.1.7"
   }
 }

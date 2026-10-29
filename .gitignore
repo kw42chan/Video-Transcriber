@@ -1,5 +1,7 @@
 node_modules/
 .env
+dist/
+.taste-skill/
 out/*
 !out/.gitkeep
 clips/*/

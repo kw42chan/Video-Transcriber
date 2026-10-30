@@ -166,7 +166,7 @@ Then open **Settings → BYOK** in the app (after login). Saving keys calls **`P
 ## Darwin’s remaining checklist
 
 - [ ] Paste `anon` + `service_role` from https://supabase.com/dashboard/project/gtwbeqhdsjcpavquengm/settings/api  
-- [ ] Apply migrations (CLI `db push` or SQL editor)  
+- [x] Initial schema on `gtwbeqhdsjcpavquengm` (Darwin) — ensure `20251030120001_lock_byok_enabled_column.sql` is applied if not already  
 - [ ] Fill Vercel + worker env (OpenRouter, Canto-Gen, Sync/Fal, `BYOK_ENCRYPTION_KEY`)  
 - [ ] Stripe account: Product/Price, webhook, env vars  
 - [ ] Set `byok_enabled = true` on owner profile via SQL  

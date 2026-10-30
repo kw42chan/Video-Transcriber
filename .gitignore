@@ -1,4 +1,7 @@
 node_modules/
+apps/web/.next/
+apps/web/.env.local
+apps/worker/.env
 .env
 out/*
 !out/.gitkeep

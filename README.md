@@ -1,5 +1,8 @@
 # Phase 0 — EN → HK 口語 Cantonese video dubbing spike
 
+**SaaS MVP:** Next.js app (`apps/web`), background worker (`apps/worker`), Supabase schema (`supabase/migrations/`). Setup: [`docs/MVP_SETUP.md`](docs/MVP_SETUP.md) (Supabase project `video-transcriber`, ref `gtwbeqhdsjcpavquengm`).
+
+
 > **Day 1 result:** Canto-Gen won the TTS A/B. **ElevenLabs and MiniMax are dropped** from the pipeline — their scripts (`tts-elevenlabs.mjs`, `tts-minimax.mjs`) stay in the repo for reference only; don't put keys in for them.
 >
 > **Day 2:** lip sync — see [Day 2 — lip sync](#day-2--lip-sync) below.

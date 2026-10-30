@@ -4,13 +4,22 @@ create extension if not exists pgcrypto;
 create type public.project_status as enum ('draft', 'in_progress', 'complete', 'archived');
 create type public.stage_status as enum ('waiting', 'ready', 'running', 'complete', 'failed', 'skipped');
 
-create table public.profiles (
+create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
+  trial_used boolean not null default false,
+  byok_enabled boolean not null default false,
+  encrypted_byok_keys jsonb,
   display_name text,
   avatar_url text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.profiles add column if not exists trial_used boolean not null default false;
+alter table public.profiles add column if not exists byok_enabled boolean not null default false;
+alter table public.profiles add column if not exists encrypted_byok_keys jsonb;
+alter table public.profiles add column if not exists display_name text;
+alter table public.profiles add column if not exists avatar_url text;
+alter table public.profiles add column if not exists updated_at timestamptz not null default now();
 
 create table public.projects (
   id uuid primary key default gen_random_uuid(),
@@ -107,6 +116,7 @@ begin
 end;
 $$;
 
+drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users
 for each row execute function public.create_profile_for_auth_user();
 create trigger on_auth_user_metadata_updated after update of raw_user_meta_data on auth.users

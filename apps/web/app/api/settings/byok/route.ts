@@ -64,6 +64,7 @@ export async function POST(req: Request) {
   if (incoming.fal) merged.fal = incoming.fal;
 
   const encrypted = await encryptByokKeys(merged, encKey);
+  // Column-level grant: authenticated may update encrypted_byok_keys only (not byok_enabled).
   const { error } = await supabase
     .from('profiles')
     .update({ encrypted_byok_keys: encrypted })

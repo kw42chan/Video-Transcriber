@@ -31,12 +31,17 @@ supabase db push
 **Option B — SQL editor**
 
 1. Open https://supabase.com/dashboard/project/gtwbeqhdsjcpavquengm/sql/new  
-2. Paste the contents of `supabase/migrations/20251030120000_initial_schema.sql`  
-3. Run
+2. Run each file in order:
+   - `supabase/migrations/20251030120000_initial_schema.sql`
+   - `supabase/migrations/20251030120001_lock_byok_enabled_column.sql`
 
 This creates `profiles`, `jobs`, `subscriptions`, RLS policies, storage buckets (`user-uploads`, `job-outputs`), and `claim_next_job()` for the worker.
 
+The second migration matches production hardening: authenticated users may **select** their profile and **update only** `trial_used` and `encrypted_byok_keys`. They cannot update `byok_enabled` (or other columns) via the anon/authenticated API.
+
 **RLS note:** End users only see their own rows. The **service role** key bypasses RLS — use it only on the worker and Stripe webhook route (server-side).
+
+**`byok_enabled`:** Never exposed to client-side updates. Flip it only in the Supabase SQL editor (as postgres) or with the **service role** — e.g. owner onboarding SQL below. The web app gates the BYOK Settings page on `byok_enabled = true` but does not write that column.
 
 ---
 
@@ -136,7 +141,7 @@ where user_id = '<uuid-from-auth-users>';
 
 ## 7. Owner BYOK (Darwin)
 
-Normal users never see API key UI. Enable BYOK only for the owner account:
+Normal users never see API key UI. Enable BYOK only for the owner account (SQL editor or service role — **not** the logged-in user session):
 
 ```sql
 update public.profiles
@@ -144,7 +149,7 @@ set byok_enabled = true
 where id = '<darwin-user-uuid>';
 ```
 
-Then open **Settings → BYOK** in the app (after login). Keys are encrypted with `BYOK_ENCRYPTION_KEY` (AES-GCM); plaintext is never returned to the browser after save.
+Then open **Settings → BYOK** in the app (after login). Saving keys calls **`POST /api/settings/byok`** (server route). That handler updates **`encrypted_byok_keys` only** using the user’s Supabase session, which is allowed by column grants after `20251030120001_lock_byok_enabled_column.sql`. It never sends or writes `byok_enabled`. Keys are encrypted with `BYOK_ENCRYPTION_KEY` (AES-GCM); plaintext is never returned to the browser after save.
 
 ---
 

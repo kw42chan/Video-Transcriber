@@ -130,7 +130,7 @@ alter table public.profiles enable row level security;
 alter table public.subscriptions enable row level security;
 alter table public.jobs enable row level security;
 
--- Profiles: users read/update own row (byok keys updated via API route with extra checks)
+-- Profiles: users read/update own row; column updates restricted in 20251030120001_lock_byok_enabled_column.sql
 create policy "profiles_select_own"
   on public.profiles for select
   using (auth.uid() = id);

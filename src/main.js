@@ -6,6 +6,8 @@ const config = {
   key: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
 };
 const configured = Boolean(config.url && config.key);
+const designPreview = (import.meta.env.DEV || import.meta.env.MODE === 'design-preview')
+  && new URLSearchParams(window.location.search).get('preview') === 'empty';
 const supabase = configured ? createClient(config.url, config.key, {
   auth: { flowType: 'pkce', autoRefreshToken: true, persistSession: true, detectSessionInUrl: true },
 }) : null;
@@ -17,33 +19,32 @@ const fmtDate = (value) => new Intl.DateTimeFormat('en', { month: 'short', day: 
 const initials = (user) => (user?.user_metadata?.full_name || user?.email || 'U').split(/[\s@]+/).filter(Boolean).slice(0, 2).map(x => x[0].toUpperCase()).join('');
 
 function render() {
-  if (!configured) return renderSetup();
+  if (!configured && !designPreview) return renderSetup();
+  if (designPreview && !state.session) state.session = { user: { id: 'design-preview', email: 'preview@example.invalid', user_metadata: { full_name: 'Design preview' } } };
   if (!state.session) return renderSignIn();
   const user = state.session.user;
   const filtered = state.filter === 'all' ? state.projects : state.projects.filter(p => p.status === state.filter);
-  const activeCount = state.projects.filter(p => !['complete', 'archived'].includes(p.status)).length;
+  const activeCount = state.projects.filter(p => p.status === 'in_progress').length;
+  const completeCount = state.projects.filter(p => p.status === 'complete').length;
   root.innerHTML = `
     <div class="shell">
       <aside class="sidebar">
         <a class="brand" href="#" aria-label="Sidecar home"><span class="brand-mark"><i></i><i></i><i></i></span><span>sidecar<span class="brand-period">.</span></span></a>
-        <div class="workspace-label">WORKSPACE</div>
-        <button class="workspace-switch" type="button"><span class="workspace-avatar">${esc(initials(user))}</span><span class="workspace-copy"><b>${esc(user.user_metadata?.full_name || 'My workspace')}</b><small>Personal workspace</small></span><span class="chevron">⌄</span></button>
+
         <nav class="nav" aria-label="Main navigation">
           <div class="nav-group">WORKSPACE</div>
           <button class="nav-item active" type="button" data-view="projects"><span class="nav-glyph">▤</span>Projects<span class="nav-count">${state.projects.length}</span></button>
-          <button class="nav-item" type="button" data-view="voice"><span class="nav-glyph">◖</span>Voice library</button>
-          <button class="nav-item" type="button" data-view="settings"><span class="nav-glyph">·</span>Settings</button>
+
         </nav>
-        <div class="sidebar-bottom"><div class="storage-label"><span>Storage</span><span>0 GB used</span></div><div class="storage-track"><i></i></div><div class="storage-caption">Files stay private to your workspace.</div><div class="profile"><span class="profile-avatar">${esc(initials(user))}</span><span class="profile-copy"><b>${esc(user.user_metadata?.full_name || 'Signed in')}</b><small>${esc(user.email || '')}</small></span><button class="icon-button" id="signout" aria-label="Sign out" title="Sign out">↗</button></div></div>
-      </aside>
+        <div class="sidebar-bottom">Source files stay private to your account.</div></aside>
       <main class="main">
-        <header class="topbar"><div class="breadcrumbs"><span>Workspace</span><span class="crumb-slash">/</span><b>Projects</b></div><div class="topbar-right"><span class="secure-label"><i></i> Private workspace</span><span class="top-divider"></span><button class="avatar-button" id="account" aria-label="Account">${esc(initials(user))}</button></div></header>
+        <header class="topbar"><div class="breadcrumbs"><span>Workspace</span><span class="crumb-slash">/</span><b>Projects</b></div><div class="topbar-right"><span class="secure-label"><i></i> ${designPreview ? 'Design preview · no data saved' : 'Private workspace'}</span><span class="top-divider"></span><button class="avatar-button" id="account" aria-label="${designPreview ? 'Preview account' : 'Sign out'}" title="${designPreview ? 'Preview account' : 'Sign out'}"><span class="avatar-initials">${esc(initials(user))}</span><span class="account-name">${esc(user.user_metadata?.full_name || 'Personal workspace')}</span></button></div></header>
         <div class="content">
-          <section class="title-row"><div><div >ENGLISH → HONG KONG CANTONESE</div><h1>Your projects</h1><p class="subtitle">Translate, voice and sync your video in one place.</p></div><button class="primary-button" id="new-project"><span>＋</span> New project</button></section>
+          <section class="title-row"><div><div >English → Hong Kong Cantonese</div><h1>Your projects</h1><p class="subtitle">Track each source video and its current dubbing stage.</p></div><button class="primary-button" id="new-project"><span>＋</span> New project</button></section>
           <section class="pipeline" aria-label="Dubbing workflow"><div class="pipeline-heading"><span>THE DUBBING FLOW</span><span>Four steps from source to final cut</span></div><div class="pipeline-steps"><div class="pipeline-step"><span class="step-icon waveform"><i></i><i></i><i></i><i></i><i></i></span><b>Transcribe</b><small>English speech</small></div><span class="pipeline-line"></span><div class="pipeline-step"><span class="step-icon translate-icon">文<span> A</span></span><b>Translate</b><small>HK Cantonese</small></div><span class="pipeline-line"></span><div class="pipeline-step"><span class="step-icon audio-icon">◖</span><b>Voice</b><small>Cloned speech</small></div><span class="pipeline-line"></span><div class="pipeline-step"><span class="step-icon sync-icon">⌁</span><b>Sync &amp; review</b><small>Final video</small></div></div></section>
-          <section class="project-section"><div class="section-head"><div><h2>Project library</h2><span class="section-count">${state.projects.length} ${state.projects.length === 1 ? 'project' : 'projects'}</span></div><div class="filters" role="tablist" aria-label="Filter projects"><button class="filter ${state.filter === 'all' ? 'selected' : ''}" data-filter="all">All <span>${state.projects.length}</span></button><button class="filter ${state.filter === 'in_progress' ? 'selected' : ''}" data-filter="in_progress">In progress <span>${activeCount}</span></button><button class="filter ${state.filter === 'complete' ? 'selected' : ''}" data-filter="complete">Completed</button></div></div>
+          <section class="project-section"><div class="section-head"><div><h2>Project library</h2><span class="section-count">${state.projects.length} ${state.projects.length === 1 ? 'project' : 'projects'}</span></div><div class="filters" role="tablist" aria-label="Filter projects"><button class="filter ${state.filter === 'all' ? 'selected' : ''}" data-filter="all">All <span>${state.projects.length}</span></button><button class="filter ${state.filter === 'in_progress' ? 'selected' : ''}" data-filter="in_progress">In progress <span>${activeCount}</span></button><button class="filter ${state.filter === 'complete' ? 'selected' : ''}" data-filter="complete">Completed <span>${completeCount}</span></button></div></div>
           ${state.error ? `<div class="notice error-notice">${esc(state.error)}</div>` : ''}${state.message ? `<div class="notice success-notice">${esc(state.message)}</div>` : ''}
-          <div class="table-wrap"><table><thead><tr><th>PROJECT</th><th>SOURCE</th><th>LAST UPDATED</th><th>STAGE</th><th></th></tr></thead><tbody>${filtered.length ? filtered.map(projectRow).join('') : `<tr><td colspan="5"><div class="empty-state"><div class="empty-mark"><span>▶</span><span>文</span><span>◖</span></div><h3>${state.projects.length ? 'No projects in this view' : 'Your next cut starts here'}</h3><p>${state.projects.length ? 'Choose another filter to see your projects.' : 'Add an English video and build its Cantonese version step by step.'}</p>${state.projects.length ? '' : '<button class="primary-button" id="empty-new">＋ New project</button>'}</div></td></tr>`}</tbody></table></div></section>
+          <div class="table-wrap"><table><thead><tr><th>PROJECT</th><th>SOURCE</th><th>LAST UPDATED</th><th>STAGE</th><th></th></tr></thead><tbody>${filtered.length ? filtered.map(projectRow).join('') : `<tr><td colspan="5"><div class="empty-state"><div class="empty-mark"><span>▶</span><span>文</span><span>◖</span></div><div class="empty-copy"><h3>${state.projects.length ? 'No projects in this view' : 'Your next cut starts here'}</h3><p>${state.projects.length ? 'Choose another filter to see your projects.' : 'Add an English source video and organize each dubbing stage from one project.'}</p></div>${state.projects.length ? '' : '<button class="primary-button" id="empty-new">＋ New project</button>'}</div></td></tr>`}</tbody></table></div></section>
           <footer class="footnote"><span>Built for speech that sounds at home in Hong Kong.</span><span class="foot-mono">SIDECAR / DUB WORKSPACE</span></footer>
         </div>
       </main>
@@ -84,7 +85,7 @@ function bindAppEvents() {
   document.querySelector('#empty-new')?.addEventListener('click', openDialog);
   document.querySelectorAll('.close-dialog').forEach(btn => btn.addEventListener('click', () => document.querySelector('#project-dialog').close()));
   document.querySelector('#signout')?.addEventListener('click', async () => { await supabase.auth.signOut(); });
-  document.querySelector('#account')?.addEventListener('click', async () => { await supabase.auth.signOut(); });
+  if (!designPreview) document.querySelector('#account')?.addEventListener('click', async () => { await supabase.auth.signOut(); });
   document.querySelectorAll('[data-filter]').forEach(btn => btn.addEventListener('click', () => { state.filter = btn.dataset.filter; render(); }));
   document.querySelectorAll('[data-view]').forEach(btn => btn.addEventListener('click', () => {
     if (btn.dataset.view !== 'projects') { state.error = `${btn.textContent.trim()} is coming soon.`; render(); }
@@ -113,6 +114,7 @@ async function createProject(event) {
   const name = form.elements.name.value.trim();
   const file = form.elements.video.files[0];
   errorEl.textContent = '';
+  if (designPreview) { errorEl.textContent = 'This local preview does not save projects.'; return; }
   if (file && file.size > 1024 ** 3) { errorEl.textContent = 'Choose a video under 1 GB.'; return; }
   state.busy = true; submit.disabled = true; submit.innerHTML = 'Creating…';
   const userId = state.session.user.id;

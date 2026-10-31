@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/lib/supabase/server';
-import { canCreateJob } from '@/lib/access';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
+import { jobInputPath } from '@video-transcriber/shared';
 
 export async function POST(req: Request) {
   const supabase = await createClient();
@@ -12,44 +12,35 @@ export async function POST(req: Request) {
   const body = await req.json();
   const jobId = body.jobId as string | undefined;
   const inputPath = body.inputPath as string | undefined;
-  const durationSeconds = body.durationSeconds as number | null | undefined;
   const projectName = typeof body.projectName === 'string' ? body.projectName.trim() : '';
   const fileName = typeof body.fileName === 'string' ? body.fileName.trim() : '';
+  const expectedInputPath = jobInputPath(user.id, jobId, fileName);
 
-  if (!jobId || !inputPath?.startsWith('user-uploads/') || !projectName || projectName.length > 80 || !fileName || fileName.length > 255) {
+  if (!expectedInputPath || inputPath !== expectedInputPath || !projectName || projectName.length > 80 || !fileName || fileName.length > 255) {
     return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
   }
 
-  const [{ data: profile }, { data: sub }] = await Promise.all([
-    supabase.from('profiles').select('trial_used, byok_enabled').eq('id', user.id).single(),
-    supabase.from('subscriptions').select('status, current_period_end').eq('user_id', user.id).maybeSingle(),
-  ]);
-
-  if (!profile) return NextResponse.json({ error: 'Profile missing' }, { status: 400 });
-
-  const access = canCreateJob(profile, sub, durationSeconds ?? 0);
-  if (!access.allowed) {
-    return NextResponse.json({ error: access.reason ?? 'Forbidden' }, { status: 403 });
+  const service = createServiceClient();
+  if (!service) {
+    return NextResponse.json({ error: 'Job creation unavailable' }, { status: 503 });
   }
 
-  const { data: job, error } = await supabase
-    .from('jobs')
-    .insert({
-      id: jobId,
-      user_id: user.id,
-      status: 'pending',
-      input_path: inputPath,
-      duration_seconds: durationSeconds,
-      metadata: { project_name: projectName, file_name: fileName },
-    })
-    .select('id')
-    .single();
+  // The RPC checks entitlement and consumes a trial atomically. Client-provided
+  // durationSeconds is unverified and must not decide access (see MVP_SETUP).
+  const { data: id, error } = await service.rpc('create_job_with_trial', {
+    p_user_id: user.id,
+    p_job_id: jobId,
+    p_input_path: expectedInputPath,
+    p_project_name: projectName,
+    p_file_name: fileName,
+  });
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  if (access.consumesTrial) {
-    await supabase.from('profiles').update({ trial_used: true }).eq('id', user.id);
+  if (error) {
+    const status = error.code === '42501' ? 403
+      : error.code === 'P0002' || error.code === '22023' ? 400
+      : error.code === '23505' ? 409 : 500;
+    return NextResponse.json({ error: status === 500 ? 'Could not create job' : error.message }, { status });
   }
 
-  return NextResponse.json({ id: job.id });
+  return NextResponse.json({ id });
 }

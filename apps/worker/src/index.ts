@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
-import { decryptByokKeys, type EncryptedByokPayload } from '@video-transcriber/shared';
+import { decryptByokKeys, userUploadObjectPath, type EncryptedByokPayload } from '@video-transcriber/shared';
 
 const ROOT = path.resolve(import.meta.dirname, '../../..');
 const POLL_MS = Number(process.env.WORKER_POLL_MS ?? '5000');
@@ -62,10 +62,9 @@ async function resolveKeysForUser(userId: string): Promise<Record<string, string
   };
 }
 
-async function downloadInput(inputPath: string, dest: string): Promise<void> {
-  const [bucket, ...rest] = inputPath.split('/');
-  const objectPath = rest.join('/');
-  const { data, error } = await supabase.storage.from(bucket).download(objectPath);
+async function downloadInput(inputPath: string, userId: string, dest: string): Promise<void> {
+  const objectPath = userUploadObjectPath(inputPath, userId);
+  const { data, error } = await supabase.storage.from('user-uploads').download(objectPath);
   if (error || !data) throw new Error(`Download failed: ${error?.message ?? 'no data'}`);
   const buf = Buffer.from(await data.arrayBuffer());
   fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -115,7 +114,7 @@ async function processJob(job: {
 
   try {
     const keyEnv = await resolveKeysForUser(job.user_id);
-    await downloadInput(job.input_path, path.join(workDir, 'video.mp4'));
+    await downloadInput(job.input_path, job.user_id, path.join(workDir, 'video.mp4'));
     await runPipeline(workDir, keyEnv);
 
     const manifestPath = path.join(workDir, 'pipeline_result.json');

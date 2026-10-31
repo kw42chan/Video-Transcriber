@@ -35,16 +35,25 @@ supabase db push
    - `supabase/migrations/20251030120000_initial_schema.sql`
    - `supabase/migrations/20251030120001_lock_byok_enabled_column.sql`
    - `supabase/migrations/202610290001_initial_schema.sql`
+   - `supabase/migrations/202610310001_atomic_job_trial.sql`
+   - `supabase/migrations/202610310002_lock_job_client_writes.sql`
+   - `supabase/migrations/202610310003_lock_definer_functions.sql`
 
 The Next.js dashboard uses `jobs` as its project list. These migrations create `profiles`, `jobs`, `subscriptions`, RLS policies, private storage buckets, and `claim_next_job()` for the worker. The final migration also retains the earlier Sidecar project, stage, voice-reference, and output tables; it extends the shared profile schema instead of creating a second `profiles` table.
 
-The second migration matches production hardening: authenticated users may **select** their profile and **update only** `trial_used` and `encrypted_byok_keys`. They cannot update `byok_enabled` (or other columns) via the anon/authenticated API.
+The final hardening migration supersedes the second migration's grants: authenticated users may update only `encrypted_byok_keys`, `display_name`, and `avatar_url` on their own profile. Both `trial_used` and `byok_enabled` are server-owned. Anonymous clients cannot update either flag.
 
-**RLS note:** End users only see their own rows. The **service role** key bypasses RLS — use it only on the worker and Stripe webhook route (server-side).
+`POST /api/jobs` authenticates the session, derives the upload path, and calls `create_job_with_trial()` using the server-only service role. The RPC locks the profile row, checks the current subscription/BYOK/trial state, inserts the job, and consumes the trial in a single transaction. Concurrent free-trial requests yield at most one job; a failed insert rolls back trial consumption. Direct authenticated job inserts and anon/authenticated RPC execution are disabled. Apply this migration before deploying the updated API; the API needs `SUPABASE_SERVICE_ROLE_KEY` and fails closed without it.
+
+**Duration limitation:** the dashboard sends `durationSeconds: null`; client durations (including 0) are not verified media metadata. The API ignores them and the RPC stores `duration_seconds = null`. This gate enforces one free job per user, independently of duration. The advertised 60-second trial / 300-second absolute media limits still require trusted server-side probing and enforcement before the paid processing pipeline; they are not enforced by this change. Do not substitute client duration for that follow-up.
+
+**RLS note:** End users only see their own rows. The **service role** key bypasses RLS — use it only server-side (worker, Stripe webhook, and the jobs API's atomic RPC).
 
 **`byok_enabled`:** Never exposed to client-side updates. Flip it only in the Supabase SQL editor (as postgres) or with the **service role** — e.g. owner onboarding SQL below. The web app gates the BYOK Settings page on `byok_enabled = true` but does not write that column.
 
 ---
+
+The job-write hardening migration additionally revokes all client INSERT/UPDATE table and column grants on `jobs`. `jobs_select_own` remains in place for authenticated reads; worker claiming and status/output updates retain service-role access. The web app creates jobs only through `POST /api/jobs` and its service-role entitlement RPC.
 
 ## 2. Supabase Auth
 
@@ -118,7 +127,7 @@ npm start
 
 Or build from repo root with `apps/worker/Dockerfile` (needs `ffmpeg`; optional Python + `faster-whisper` for ASR).
 
-The worker polls `claim_next_job()` and runs `scripts/run-saas-pipeline.mjs` against Supabase Storage paths.
+The worker polls `claim_next_job()` using only `SUPABASE_SERVICE_ROLE_KEY` and runs `scripts/run-saas-pipeline.mjs` against Supabase Storage paths. The definer-function hardening migration explicitly denies PUBLIC, anon, and authenticated execution of the worker RPC, the atomic job RPC, and signup/project trigger helpers. All have a fixed empty `search_path` and schema-qualified table references. Existing auth signup/metadata and project-stage triggers continue to invoke their helpers; no public Next.js route exposes the worker RPC.
 
 ---
 
@@ -151,7 +160,7 @@ set byok_enabled = true
 where id = '<darwin-user-uuid>';
 ```
 
-Then open **Settings → BYOK** in the app (after login). Saving keys calls **`POST /api/settings/byok`** (server route). That handler updates **`encrypted_byok_keys` only** using the user’s Supabase session, which is allowed by column grants after `20251030120001_lock_byok_enabled_column.sql`. It never sends or writes `byok_enabled`. Keys are encrypted with `BYOK_ENCRYPTION_KEY` (AES-GCM); plaintext is never returned to the browser after save.
+Then open **Settings → BYOK** in the app (after login). Saving keys calls **`POST /api/settings/byok`** (server route). That handler updates **`encrypted_byok_keys` only** using the user’s Supabase session, which remains allowed after `202610310001_atomic_job_trial.sql`. It never sends or writes `byok_enabled`. Keys are encrypted with `BYOK_ENCRYPTION_KEY` (AES-GCM); plaintext is never returned to the browser after save.
 
 ---
 

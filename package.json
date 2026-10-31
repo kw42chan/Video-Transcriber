@@ -1,16 +1,25 @@
 {
   "name": "phase0-cantonese-tts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
-  "description": "Phase 0 EN→HK 口語 Cantonese dubbing spike: Day 1 TTS A/B + Day 2 lip sync",
+  "description": "Cantonese dubbing pipeline and Video Transcriber SaaS workspace",
   "engines": {
     "node": ">=20"
   },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
-    "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1",
+    "dev": "npm run web:dev",
+    "build": "npm run web:build",
+    "start": "npm run start --workspace=@video-transcriber/web",
+    "preview": "npm run start --workspace=@video-transcriber/web",
+    "web:dev": "npm run build --workspace=@video-transcriber/shared && npm run dev --workspace=@video-transcriber/web",
+    "web:build": "npm run build --workspace=@video-transcriber/shared && npm run build --workspace=@video-transcriber/web",
+    "worker:dev": "npm run build --workspace=@video-transcriber/shared && npm run dev --workspace=@video-transcriber/worker",
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "translate": "node scripts/translate-to-hk-kouyu.mjs",
     "tts:canto-gen": "node scripts/tts-canto-gen.mjs",
     "tts:elevenlabs": "node scripts/tts-elevenlabs.mjs",
@@ -18,12 +27,7 @@
     "ab": "node scripts/run-ab.mjs",
     "lipsync:cut": "node scripts/cut-lipsync-test.mjs",
     "lipsync:synclabs": "node scripts/lipsync-synclabs.mjs",
-    "lipsync:musetalk": "node scripts/lipsync-musetalk.mjs"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.57.0"
-  },
-  "devDependencies": {
-    "vite": "^7.1.7"
+    "lipsync:musetalk": "node scripts/lipsync-musetalk.mjs",
+    "saas:pipeline": "node scripts/run-saas-pipeline.mjs"
   }
 }

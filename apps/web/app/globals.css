@@ -344,3 +344,47 @@ dialog::backdrop { background: rgb(0 0 0 / .78); }
   .content { padding-right: 18px; padding-left: 18px; }
   .footnote span:last-child { font-size: 12px; }
 }
+
+/* Shared page styles for billing, job details and account settings. */
+:root { --danger: var(--negative); }
+.container { width: min(100% - 40px, 900px); margin: 0 auto; padding: 42px 0; }
+.card { margin: 18px 0; padding: 22px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--surface); }
+.card h2 { margin-top: 0; font-size: 18px; font-weight: 500; }
+.btn { display: inline-flex; min-height: 38px; align-items: center; justify-content: center; padding: 0 16px; border: 0; border-radius: var(--radius-control); background: #fff; color: #000; font-size: 13px; font-weight: 500; cursor: pointer; text-decoration: none; }
+.btn.secondary, .secondary-button { border: 1px solid var(--control); background: transparent; color: var(--ink); }
+.btn:disabled { cursor: not-allowed; opacity: .55; }
+.container > h1 { margin: 12px 0; font-size: 28px; font-weight: 500; letter-spacing: -.5px; }
+.container > p { line-height: 1.6; }
+.container input:not([type="file"]), .container textarea { width: 100%; padding: 11px 12px; border: 1px solid var(--control); border-radius: 8px; background: #080808; color: var(--ink); }
+.container input:focus, .container textarea:focus { border-color: var(--accent); }
+.status-pending { color: var(--warning); }
+.status-running { color: #9ab9ff; }
+.status-succeeded { color: var(--accent); }
+.status-failed, .error-text { color: var(--negative); }
+.error-text { display: block; max-width: 300px; overflow-wrap: anywhere; }
+.status.failed i { background: var(--negative); }
+.project-name { display: flex; align-items: center; gap: 11px; }
+.project-name > span:last-child { display: grid; min-width: 0; gap: 4px; }
+.project-name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-name small { color: var(--faint); font-size: 11px; font-weight: 400; }
+.project-symbol, .file-symbol { color: var(--muted); }
+.project-symbol { width: 16px; flex: 0 0 16px; color: var(--accent); font-size: 12px; }
+.file-symbol { margin-right: 8px; }
+.detail-back { margin: 0 0 18px; color: var(--muted); font-size: 13px; }
+.detail-back a:hover { color: var(--ink); }
+.detail-title-row { align-items: center; }
+.detail-status-copy { margin-top: 18px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.project-dialog { max-width: calc(100vw - 24px); max-height: calc(100vh - 24px); margin: auto; overflow: auto; }
+.signin-form { display: grid; gap: 10px; }
+.signin-form label { margin: 7px 0 0; color: var(--muted); font-size: 13px; }
+.signin-form input { min-height: 42px; padding: 0 12px; border: 1px solid var(--control); border-radius: 8px; background: #080808; color: var(--ink); }
+.signin-form .primary-button { width: 100%; margin-top: 8px; }
+.signin-toggle { margin-top: 16px; color: var(--muted); font-size: 13px; }
+.signin-toggle button { padding: 0; border: 0; background: transparent; color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.signin-error { min-height: 18px; color: var(--negative); font-size: 12px; }
+.dialog-plan-note { color: var(--muted); font-size: 12px; line-height: 1.55; }
+
+@media (max-width: 760px) {
+  .container { width: min(100% - 32px, 900px); padding-top: 24px; }
+  .card { padding: 18px; }
+}

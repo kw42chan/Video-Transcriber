@@ -1,4 +1,9 @@
 node_modules/
+apps/web/.next/
+apps/web/.env.local
+apps/worker/.env
+packages/shared/dist/
+apps/worker/dist/
 .env
 dist/
 .taste-skill/
@@ -12,6 +17,7 @@ refs/*
 *.wav
 
 inputs/
+supabase/.temp/
 .venv-asr/
 __pycache__/
 *.mp4

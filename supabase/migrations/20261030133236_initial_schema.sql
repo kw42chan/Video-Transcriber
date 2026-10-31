@@ -1,10 +1,6 @@
 -- Video-Transcriber SaaS MVP schema
--- Apply via Supabase SQL editor or: supabase db push
-
--- Extensions
 create extension if not exists "pgcrypto";
 
--- Profiles (1:1 with auth.users)
 create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   trial_used boolean not null default false,
@@ -12,14 +8,10 @@ create table if not exists public.profiles (
   encrypted_byok_keys jsonb,
   created_at timestamptz not null default now()
 );
-alter table public.profiles add column if not exists trial_used boolean not null default false;
-alter table public.profiles add column if not exists byok_enabled boolean not null default false;
-alter table public.profiles add column if not exists encrypted_byok_keys jsonb;
 
 comment on column public.profiles.encrypted_byok_keys is
   'AES-GCM encrypted JSON: { openrouter?, cantoGen?, synclabs?, fal? } — never expose plaintext to clients';
 
--- Stripe subscriptions
 create table if not exists public.subscriptions (
   user_id uuid primary key references auth.users (id) on delete cascade,
   stripe_customer_id text,
@@ -33,7 +25,6 @@ create table if not exists public.subscriptions (
 create index if not exists subscriptions_stripe_customer_id_idx
   on public.subscriptions (stripe_customer_id);
 
--- Processing jobs
 create table if not exists public.jobs (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users (id) on delete cascade,
@@ -55,7 +46,6 @@ create index if not exists jobs_status_created_at_idx
   on public.jobs (status, created_at)
   where status = 'pending';
 
--- Auto-create profile on signup
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -74,7 +64,6 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
--- updated_at helper
 create or replace function public.set_updated_at()
 returns trigger
 language plpgsql
@@ -95,7 +84,6 @@ create trigger subscriptions_set_updated_at
   before update on public.subscriptions
   for each row execute function public.set_updated_at();
 
--- Worker job claim (service role only in practice)
 create or replace function public.claim_next_job()
 returns setof public.jobs
 language plpgsql
@@ -128,12 +116,10 @@ $$;
 revoke all on function public.claim_next_job() from public;
 grant execute on function public.claim_next_job() to service_role;
 
--- RLS
 alter table public.profiles enable row level security;
 alter table public.subscriptions enable row level security;
 alter table public.jobs enable row level security;
 
--- Profiles: users read/update own row; column updates restricted in 20251030120001_lock_byok_enabled_column.sql
 create policy "profiles_select_own"
   on public.profiles for select
   using (auth.uid() = id);
@@ -143,12 +129,10 @@ create policy "profiles_update_own"
   using (auth.uid() = id)
   with check (auth.uid() = id);
 
--- Subscriptions: users read own; writes via service role (Stripe webhooks)
 create policy "subscriptions_select_own"
   on public.subscriptions for select
   using (auth.uid() = user_id);
 
--- Jobs: users CRUD own rows (insert gated in app; worker uses service role)
 create policy "jobs_select_own"
   on public.jobs for select
   using (auth.uid() = user_id);
@@ -157,7 +141,6 @@ create policy "jobs_insert_own"
   on public.jobs for insert
   with check (auth.uid() = user_id);
 
--- Storage buckets (private)
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values
   (
@@ -176,7 +159,6 @@ values
   )
 on conflict (id) do nothing;
 
--- Path layout: {user_id}/{job_id}/filename
 create policy "user_uploads_select_own"
   on storage.objects for select
   using (
@@ -211,5 +193,4 @@ create policy "job_outputs_select_own"
     bucket_id = 'job-outputs'
     and auth.uid()::text = (storage.foldername(name))[1]
   );
-
--- Service role bypasses RLS for worker + webhooks (document in MVP_SETUP.md)
+;

@@ -1,4 +1,4 @@
--- Sidecar dubbing workspace schema. Run with: supabase db push
+-- Sidecar workspace extension, ordered after the production SaaS bootstrap.
 create extension if not exists pgcrypto;
 
 create type public.project_status as enum ('draft', 'in_progress', 'complete', 'archived');

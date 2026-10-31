@@ -32,9 +32,9 @@ supabase db push
 
 1. Open https://supabase.com/dashboard/project/gtwbeqhdsjcpavquengm/sql/new
 2. Run each file in order:
-   - `supabase/migrations/20251030120000_initial_schema.sql`
-   - `supabase/migrations/20251030120001_lock_byok_enabled_column.sql`
-   - `supabase/migrations/202610290001_initial_schema.sql`
+   - `supabase/migrations/20261030133236_initial_schema.sql`
+   - `supabase/migrations/20261030133246_lock_byok_enabled_column.sql`
+   - `supabase/migrations/20261030133300_sidecar_workspace.sql`
    - `supabase/migrations/202610310001_atomic_job_trial.sql`
    - `supabase/migrations/202610310002_lock_job_client_writes.sql`
    - `supabase/migrations/202610310003_lock_definer_functions.sql`
@@ -177,8 +177,25 @@ Then open **Settings → BYOK** in the app (after login). Saving keys calls **`P
 ## Darwin’s remaining checklist
 
 - [ ] Paste `anon` + `service_role` from https://supabase.com/dashboard/project/gtwbeqhdsjcpavquengm/settings/api
-- [x] Initial schema on `gtwbeqhdsjcpavquengm` (Darwin) — ensure `20251030120001_lock_byok_enabled_column.sql` is applied if not already
+- [x] Initial schema on `gtwbeqhdsjcpavquengm` (Darwin) — ensure `20261030133246_lock_byok_enabled_column.sql` is applied if not already
 - [ ] Fill Vercel + worker env (OpenRouter, Canto-Gen, Sync/Fal, `BYOK_ENCRYPTION_KEY`)
 - [ ] Stripe account: Product/Price, webhook, env vars
 - [ ] Set `byok_enabled = true` on owner profile via SQL
 - [ ] Deploy worker with `ffmpeg` (+ ASR deps if using full pipeline)
+
+## Branch consolidation review (2026-10-31)
+
+Freshly fetched origin/main and origin/feature/ui-enhancement both point to 34def28. origin/cursor/video-transcriber-saas-mvp-d42e points to ddf4018 and contains main plus six commits. Recommend merging the SaaS branch into main after a production build and deployment review; main can fast-forward with no divergent commits. This includes the Next.js SaaS conversion as well as security hardening, so apply the pending migrations before deploying the updated API and verify server environment variables. The identical UI branch is redundant and can be removed after consolidation. No merge or branch deletion was performed during this review.
+
+## Production release order
+
+1. Build and test the SaaS branch and verify server-only service-role environment configuration for the web app and worker.
+2. Inspect the linked database migration history and preview pending migrations. If earlier schema changes were applied manually, reconcile history against the actual schema before applying anything; do not replay initial schema files blindly.
+3. Pause uploads/job creation for the cutover: the hardening migration removes writes required by the old API, so applying it before the new API can temporarily block job creation.
+4. Apply only verified pending migrations in order: 202610310001_atomic_job_trial.sql, 202610310002_lock_job_client_writes.sql, 202610310003_lock_definer_functions.sql, after confirming prerequisites.
+5. Merge the SaaS branch into main and deploy the updated web app and worker promptly. If merging automatically deploys production, keep that merge until the database step succeeds.
+6. Verify signup, first trial, repeat-trial denial, owner-only storage access, and worker processing before reopening uploads. GitHub merging alone does not apply database migrations without configured automation.
+
+### Verified production migration baseline (2026-10-31)
+
+The linked project records `20261030133236_initial_schema` and `20261030133246_lock_byok_enabled_column` as applied. The repository now retains those exact fetched migration definitions instead of duplicate bootstrap files under different timestamps. The unapplied workspace extension is ordered after them as `20261030133300_sidecar_workspace.sql`; it adds the profile display fields and trigger helpers required by the later hardening migrations. No remote history repair or bootstrap replay is needed. A linked dry run lists the workspace extension followed by the three security migrations, and the complete reconciled chain passes all three isolated PostgreSQL regression suites.

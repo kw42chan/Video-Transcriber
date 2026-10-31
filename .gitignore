@@ -17,6 +17,7 @@ refs/*
 *.wav
 
 inputs/
+supabase/.temp/
 .venv-asr/
 __pycache__/
 *.mp4

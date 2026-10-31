@@ -26,7 +26,16 @@ $$;
 -- trigger. Both must work without EXECUTE granted to the auth service role.
 create trigger test_legacy_signup after insert on auth.users
   for each row execute function public.handle_new_user();
-set local role supabase_auth_admin;
+-- Hosted Supabase's postgres role cannot assume supabase_auth_admin. Exercise
+-- that role where permitted (local/test databases); otherwise keep the SQL
+-- trigger check as postgres and verify real signup separately via the Auth API.
+do $$
+begin
+  if pg_has_role(current_user, 'supabase_auth_admin', 'MEMBER') then
+    execute 'set local role supabase_auth_admin';
+  end if;
+end;
+$$;
 insert into auth.users (id, raw_user_meta_data)
 values ('77777777-7777-4777-8777-777777777777', '{"full_name":"Signup test"}');
 update auth.users set raw_user_meta_data = '{"full_name":"Updated signup test"}'

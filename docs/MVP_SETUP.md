@@ -198,4 +198,14 @@ Freshly fetched origin/main and origin/feature/ui-enhancement both point to 34de
 
 ### Verified production migration baseline (2026-10-31)
 
-The linked project records `20261030133236_initial_schema` and `20261030133246_lock_byok_enabled_column` as applied. The repository now retains those exact fetched migration definitions instead of duplicate bootstrap files under different timestamps. The unapplied workspace extension is ordered after them as `20261030133300_sidecar_workspace.sql`; it adds the profile display fields and trigger helpers required by the later hardening migrations. No remote history repair or bootstrap replay is needed. A linked dry run lists the workspace extension followed by the three security migrations, and the complete reconciled chain passes all three isolated PostgreSQL regression suites.
+The linked project records `20261030133236_initial_schema` and `20261030133246_lock_byok_enabled_column` as applied. The repository retains those exact fetched migration definitions instead of duplicate bootstrap files under different timestamps. The workspace extension is ordered after them as `20261030133300_sidecar_workspace.sql`; it adds the profile display fields and trigger helpers required by the later hardening migrations. No remote history repair or bootstrap replay was needed. The workspace extension and all three security migrations have now been applied; a linked dry run reports the database is up to date.
+
+## Production release status (2026-10-31)
+
+- PR #1 was merged into `main` as `462f1be`.
+- The web app is deployed at https://video-transcriber-sigma-pearl.vercel.app. The public domain is the canonical `NEXT_PUBLIC_APP_URL`; team-scoped Vercel aliases require deployment authentication.
+- The server-only Supabase service-role secret is configured in Vercel production and preview. No credentials are stored in the repository.
+- All three SQL regression suites passed on the live database with fixtures rolled back. Real Auth signup and metadata triggers passed; direct client job writes and worker RPC calls were denied.
+- The live API rejected foreign upload paths with 400. Two concurrent free-trial requests returned 200 and 403, creating exactly one job. All temporary test users, jobs, and uploads were removed.
+- Darwin confirmed no VPS deployment has been made. The worker still needs a production host and a complete media-processing verification. Its build and service-role claim/update SQL checks pass, but those checks do not establish a deployed worker.
+- Trusted server-side media-duration enforcement remains a separate follow-up.

@@ -3,6 +3,7 @@
   "version": "0.2.0",
   "private": true,
   "type": "module",
+  "packageManager": "npm@11.21.1",
   "description": "Cantonese dubbing pipeline and Video Transcriber SaaS workspace",
   "engines": {
     "node": ">=20"
@@ -11,6 +12,9 @@
     "apps/*",
     "packages/*"
   ],
+  "overrides": {
+    "postcss": "8.5.32"
+  },
   "scripts": {
     "dev": "npm run web:dev",
     "build": "npm run web:build",
@@ -29,5 +33,8 @@
     "lipsync:synclabs": "node scripts/lipsync-synclabs.mjs",
     "lipsync:musetalk": "node scripts/lipsync-musetalk.mjs",
     "saas:pipeline": "node scripts/run-saas-pipeline.mjs"
+  },
+  "dependencies": {
+    "postcss": "8.5.32"
   }
 }

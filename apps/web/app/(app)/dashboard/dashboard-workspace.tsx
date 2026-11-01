@@ -215,8 +215,13 @@ function ProjectDialog({
       if (!user) throw new Error('Your session expired. Sign in again to continue.');
 
       const jobId = crypto.randomUUID();
-      const ext = file.name.split('.').pop()?.toLowerCase().replace(/[^a-z0-9]/g, '') || 'mp4';
-      uploadedPath = `${user.id}/${jobId}/input.${ext}`;
+      const reservation = await fetch('/api/uploads/reserve', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jobId, fileName: file.name }),
+      });
+      const prepared = await reservation.json();
+      if (!reservation.ok) throw new Error(prepared.error || 'Could not prepare upload.');
+      uploadedPath = prepared.objectPath;
       const { error: uploadError } = await supabase.storage.from('user-uploads').upload(uploadedPath, file, {
         upsert: false,
         contentType: file.type || 'video/mp4',

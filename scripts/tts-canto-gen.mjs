@@ -12,6 +12,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { downloadTo } from './lib/lipsync.mjs';
 import {
   requireEnv,
   env,
@@ -106,11 +107,7 @@ export async function synthesizeCantoGen({ text, refPath, outPath, voiceSlug }) 
   }
 
   const { latencyMs: dlMs } = await timed(async () => {
-    const audioRes = await fetch(job.audio_url);
-    if (!audioRes.ok) throw new Error(`Canto-Gen download ${audioRes.status}`);
-    const ab = Buffer.from(await audioRes.arrayBuffer());
-    ensureDir(path.dirname(outPath));
-    fs.writeFileSync(outPath, ab);
+    await downloadTo(job.audio_url, outPath);
   });
 
   return {

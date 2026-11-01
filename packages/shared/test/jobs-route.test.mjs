@@ -92,7 +92,7 @@ test('jobs API ignores unverified duration and client entitlement/identity field
 });
 
 test('jobs API maps atomic entitlement, missing profile, and duplicate errors', async () => {
-  for (const [code, expected] of [['42501', 403], ['P0002', 400], ['22023', 400], ['23505', 409], ['XX000', 500]]) {
+  for (const [code, expected] of [['42501', 403], ['P0002', 400], ['22023', 400], ['23505', 409], ['54000', 429], ['XX000', 500]]) {
     const { post } = await route({ id: userId }, { rpcError: { code, message: 'Database error' } });
     const response = await post(request(payload));
     assert.equal(response.status, expected);

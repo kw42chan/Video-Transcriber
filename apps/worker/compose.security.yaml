@@ -1,0 +1,20 @@
+services:
+  worker:
+    build:
+      context: ../..
+      dockerfile: apps/worker/Dockerfile
+    env_file: .env
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 4g
+    cpus: 2
+    pids_limit: 256
+    tmpfs:
+      - /tmp:size=2147483648,uid=1000,gid=1000,mode=1770
+    volumes:
+      - whisper-models:/opt/whisper-models:ro
+volumes:
+  whisper-models:

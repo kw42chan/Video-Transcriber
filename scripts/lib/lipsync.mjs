@@ -7,8 +7,10 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { mediaExecSync } from './media-sandbox.mjs';
 import { ROOT, OUT_DIR, ensureDir, log } from './common.mjs';
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 
 export const SPEND_FILE = path.join(OUT_DIR, 'spend.json');
 export const SPEND_CAP_USD = 20;
@@ -50,10 +52,10 @@ export function rel(p) {
 }
 
 export function probeDuration(file) {
-  const s = execFileSync(
+  const s = mediaExecSync(
     'ffprobe',
     ['-v', 'error', '-show_entries', 'format=duration', '-of', 'default=nw=1:nk=1', file],
-    { encoding: 'utf8' }
+    path.dirname(path.resolve(file))
   ).trim();
   const d = Number(s);
   if (!Number.isFinite(d)) throw new Error(`ffprobe: no duration for ${file}`);
@@ -61,10 +63,10 @@ export function probeDuration(file) {
 }
 
 export function probeVideo(file) {
-  const s = execFileSync(
+  const s = mediaExecSync(
     'ffprobe',
     ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,r_frame_rate', '-of', 'json', file],
-    { encoding: 'utf8' }
+    path.dirname(path.resolve(file))
   );
   const st = JSON.parse(s).streams?.[0] || {};
   const [n, d] = String(st.r_frame_rate || '30/1').split('/').map(Number);
@@ -81,8 +83,8 @@ export function cutPair({ video, audio, start = 0, duration, outDir }) {
   const vOut = path.join(outDir, 'video.mp4');
   const aOut = path.join(outDir, 'audio.wav');
   const t = ['-ss', String(start), ...(duration ? ['-t', String(duration)] : [])];
-  execFileSync('ffmpeg', ['-v', 'error', '-y', ...t, '-i', video, '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', vOut]);
-  execFileSync('ffmpeg', ['-v', 'error', '-y', ...t, '-i', audio, '-vn', '-c:a', 'pcm_s16le', aOut]);
+  mediaExecSync('ffmpeg', ['-v', 'error', '-y', ...t, '-i', video, '-an', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', vOut], path.dirname(path.resolve(video)));
+  mediaExecSync('ffmpeg', ['-v', 'error', '-y', ...t, '-i', audio, '-vn', '-c:a', 'pcm_s16le', aOut], path.dirname(path.resolve(audio)));
   return { video: vOut, audio: aOut };
 }
 
@@ -143,10 +145,17 @@ export function redactHeaders(h) {
 }
 
 export async function downloadTo(url, file) {
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(120000) });
   if (!res.ok) throw new Error(`download ${res.status} ${url.split('?')[0]}`);
+  if (!res.body) throw new Error('Provider returned no media');
+  const maxBytes = 500 * 1024 ** 2;
+  if (Number(res.headers.get('content-length')) > maxBytes) throw new Error('Provider media exceeds size limit');
   ensureDir(path.dirname(file));
-  fs.writeFileSync(file, Buffer.from(await res.arrayBuffer()));
+  let bytes = 0;
+  await pipeline(Readable.fromWeb(res.body), new Transform({ transform(chunk, _encoding, callback) {
+    bytes += chunk.length;
+    callback(bytes > maxBytes ? new Error('Provider media exceeds size limit') : null, chunk);
+  } }), fs.createWriteStream(file));
   return file;
 }
 

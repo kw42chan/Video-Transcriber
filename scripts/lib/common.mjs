@@ -7,6 +7,7 @@ export const ROOT = path.resolve(__dirname, '../..');
 
 /** Load KEY=VALUE from .env without adding a dependency. Does not override existing process.env. */
 export function loadDotEnv(file = path.join(ROOT, '.env')) {
+  if (process.env.SAAS_MODE === '1') return;
   if (!fs.existsSync(file)) return;
   const text = fs.readFileSync(file, 'utf8');
   for (const line of text.split(/\r?\n/)) {
@@ -29,6 +30,9 @@ export function loadDotEnv(file = path.join(ROOT, '.env')) {
 loadDotEnv();
 
 export function env(name, fallback = undefined) {
+  // SaaS jobs use canonical credentials explicitly selected by the worker.
+  // A legacy CLI alias must never revive platform billing for a BYOK stage.
+  if (process.env.SAAS_MODE === '1' && ['CANTOGEN_API_KEY', 'SYNC_API_KEY'].includes(name)) return fallback;
   const v = process.env[name];
   if (v === undefined || v === '') return fallback;
   return v;

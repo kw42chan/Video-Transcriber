@@ -26,7 +26,8 @@ export async function POST(req: Request) {
   }
 
   // The RPC checks entitlement and consumes a trial atomically. Client-provided
-  // durationSeconds is unverified and must not decide access (see MVP_SETUP).
+  // durationSeconds is unverified and must not decide access. The RPC snapshots
+  // the duration policy; the worker verifies media before processing (MVP_SETUP).
   const { data: id, error } = await service.rpc('create_job_with_trial', {
     p_user_id: user.id,
     p_job_id: jobId,
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
   if (error) {
     const status = error.code === '42501' ? 403
       : error.code === 'P0002' || error.code === '22023' ? 400
-      : error.code === '23505' ? 409 : 500;
+      : error.code === '23505' ? 409 : error.code === '54000' ? 429 : 500;
     return NextResponse.json({ error: status === 500 ? 'Could not create job' : error.message }, { status });
   }
 

@@ -3,6 +3,15 @@
 -- All fixtures and jobs are rolled back.
 begin;
 
+create function pg_temp.stage_upload(uid uuid,jid uuid) returns void language plpgsql as $$
+declare object_path text := uid::text||'/'||jid::text||'/input.mp4';
+begin
+  perform public.reserve_upload(uid,jid,object_path);
+  insert into storage.objects(bucket_id,name,metadata)
+    values('user-uploads',object_path,'{"size":1024}');
+end;
+$$;
+
 do $$
 declare
   role_name text;
@@ -43,10 +52,12 @@ declare
   uid uuid := '11111111-1111-4111-8111-111111111111';
   jid uuid := 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 begin
+  perform pg_temp.stage_upload(uid,jid);
   assert public.create_job_with_trial(uid, jid,
     'user-uploads/' || uid || '/' || jid || '/input.mp4', 'Trial', 'input.mp4') = jid;
   assert (select trial_used from public.profiles where id = uid), 'Trial not consumed';
   assert (select duration_seconds is null from public.jobs where id = jid), 'Unverified duration stored';
+  assert (select max_duration_seconds = 60 from public.jobs where id = jid), 'Trial duration policy missing';
 
   begin
     jid := 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -95,8 +106,10 @@ begin
   ] loop
     for i in 1..2 loop
       jid := gen_random_uuid();
+      perform pg_temp.stage_upload(uid,jid);
       perform public.create_job_with_trial(uid, jid,
         'user-uploads/' || uid || '/' || jid || '/input.mp4', 'Entitled', 'input.mp4');
+      assert (select max_duration_seconds = 300 from public.jobs where id = jid), 'Paid/BYOK duration policy missing';
     end loop;
     assert not (select trial_used from public.profiles where id = uid), 'Paid/BYOK consumed trial';
   end loop;

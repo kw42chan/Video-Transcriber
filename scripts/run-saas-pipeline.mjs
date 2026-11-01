@@ -8,61 +8,43 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ROOT, env, log, warn, ensureDir, hasEnv } from './lib/common.mjs';
+import { durationLimit, verifyMediaDuration } from './lib/media-duration.mjs';
+import { runProcess } from './lib/process.mjs';
+import { runMedia } from './lib/media-sandbox.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function run(cmd, args, opts = {}) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, {
-      cwd: ROOT,
-      env: { ...process.env, ...opts.env },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (d) => {
-      stdout += d;
-      if (opts.inherit) process.stdout.write(d);
-    });
-    child.stderr.on('data', (d) => {
-      stderr += d;
-      if (opts.inherit) process.stderr.write(d);
-    });
-    child.on('close', (code) => {
-      if (code === 0) resolve({ stdout, stderr });
-      else reject(new Error(`${cmd} ${args.join(' ')} exited ${code}: ${stderr.slice(-800)}`));
-    });
-  });
+  const workIdx = process.argv.indexOf('--work-dir');
+  const workDir = path.resolve(process.argv[workIdx + 1]);
+  if (cmd !== process.execPath) return runMedia(cmd, args, workDir, opts);
+  const name = path.basename(args[0]);
+  const keys = name === 'translate-segments.mjs' ? ['OPENROUTER_API_KEY', 'OPENROUTER_MODEL']
+    : name === 'tts-segments.mjs' ? ['CANTO_GEN_API_KEY', 'CANTO_GEN_VOICE']
+    : name === 'lipsync-synclabs.mjs' ? ['SYNCLABS_API_KEY'] : ['FAL_KEY'];
+  const env = { SAAS_MODE: '1', PATH: process.env.PATH, HOME: '/tmp',
+    OUT_DIR: path.join(workDir, 'provider-output'), SystemRoot: process.env.SystemRoot };
+  for (const key of keys) if (process.env[key]) env[key] = process.env[key];
+  return runProcess(cmd, args, { ...opts, cwd: ROOT, env });
 }
 
 function parseArgs(argv) {
   const workIdx = argv.indexOf('--work-dir');
   const refIdx = argv.indexOf('--ref');
+  const limitIdx = argv.indexOf('--max-duration-seconds');
   return {
     workDir: workIdx >= 0 ? argv[workIdx + 1] : null,
     refPath: refIdx >= 0 ? argv[refIdx + 1] : null,
     skipLipsync: argv.includes('--skip-lipsync'),
+    maxDuration: durationLimit(limitIdx >= 0 ? argv[limitIdx + 1] ?? NaN : 60),
+    validateOnly: argv.includes('--validate-only'),
   };
 }
 
-async function probeDuration(videoPath) {
-  const { stdout } = await run('ffprobe', [
-    '-v',
-    'error',
-    '-show_entries',
-    'format=duration',
-    '-of',
-    'csv=p=0',
-    videoPath,
-  ]);
-  return Number(stdout.trim());
-}
-
 async function main() {
-  const { workDir, refPath, skipLipsync } = parseArgs(process.argv.slice(2));
+  const { workDir, refPath, skipLipsync, maxDuration, validateOnly } = parseArgs(process.argv.slice(2));
   if (!workDir) {
     console.error('Usage: node scripts/run-saas-pipeline.mjs --work-dir DIR [--ref refs.wav] [--skip-lipsync]');
     process.exit(2);
@@ -74,6 +56,13 @@ async function main() {
   }
 
   ensureDir(workDir);
+  // Fail closed before extraction, ASR or any paid provider call. The worker
+  // supplies the server-owned job policy; standalone CLI defaults to trial.
+  const duration = await verifyMediaDuration(videoPath, maxDuration);
+  if (validateOnly) {
+    console.log(JSON.stringify({ durationSeconds: duration }));
+    return;
+  }
   const audio16 = path.join(workDir, 'audio_16k.wav');
   log('Extracting 16 kHz mono audio…');
   await run('ffmpeg', [
@@ -82,6 +71,8 @@ async function main() {
     'error',
     '-i',
     videoPath,
+    '-t',
+    String(maxDuration),
     '-ac',
     '1',
     '-ar',
@@ -194,7 +185,6 @@ async function main() {
     outputs.finalVideo = muxed;
   }
 
-  const duration = await probeDuration(videoPath);
   const manifest = {
     ok: true,
     durationSeconds: duration,

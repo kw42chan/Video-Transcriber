@@ -38,6 +38,10 @@ supabase db push
    - `supabase/migrations/202610310001_atomic_job_trial.sql`
    - `supabase/migrations/202610310002_lock_job_client_writes.sql`
    - `supabase/migrations/202610310003_lock_definer_functions.sql`
+   - `supabase/migrations/202611010001_job_duration_policy.sql`
+   - `supabase/migrations/202611010002_upload_reservations.sql`
+   - `supabase/migrations/202611010003_worker_and_billing.sql`
+   - `supabase/migrations/202611010004_require_reserved_upload.sql`
 
 The Next.js dashboard uses `jobs` as its project list. These migrations create `profiles`, `jobs`, `subscriptions`, RLS policies, private storage buckets, and `claim_next_job()` for the worker. The final migration also retains the earlier Sidecar project, stage, voice-reference, and output tables; it extends the shared profile schema instead of creating a second `profiles` table.
 
@@ -45,7 +49,51 @@ The final hardening migration supersedes the second migration's grants: authenti
 
 `POST /api/jobs` authenticates the session, derives the upload path, and calls `create_job_with_trial()` using the server-only service role. The RPC locks the profile row, checks the current subscription/BYOK/trial state, inserts the job, and consumes the trial in a single transaction. Concurrent free-trial requests yield at most one job; a failed insert rolls back trial consumption. Direct authenticated job inserts and anon/authenticated RPC execution are disabled. Apply this migration before deploying the updated API; the API needs `SUPABASE_SERVICE_ROLE_KEY` and fails closed without it.
 
-**Duration limitation:** the dashboard sends `durationSeconds: null`; client durations (including 0) are not verified media metadata. The API ignores them and the RPC stores `duration_seconds = null`. This gate enforces one free job per user, independently of duration. The advertised 60-second trial / 300-second absolute media limits still require trusted server-side probing and enforcement before the paid processing pipeline; they are not enforced by this change. Do not substitute client duration for that follow-up.
+**Server-side duration enforcement:** client durations are ignored. Migration `202611010001_job_duration_policy.sql` snapshots `max_duration_seconds` in the atomic job transaction: 60 for trials, 300 for subscription/BYOK jobs. The worker downloads the input, invokes a bounded `ffprobe` preflight, stores verified `duration_seconds`, and only then loads provider keys and starts processing. The pipeline independently checks duration at entry before extraction, ASR, translation, TTS or lip sync. Invalid, unknown, nonpositive or excessive durations fail closed. Audio extraction is also capped at the policy limit. Historical jobs without a snapshot use 60 seconds; current profile state is not used to guess their original entitlement.
+
+The probe has a 15-second timeout, bounded output and file-only input protocols. This is a metadata-based duration gate, not full media sandboxing or a guarantee against deceptive container metadata; broader parser/resource isolation remains tracked separately. Trial consumption remains at job creation, including when invalid/overlong media later fails. No credit-balance system or provider-funds check is introduced.
+
+**Rollout:** pause any existing worker, inspect live migration history, apply the new migration, then build/deploy and resume the updated worker. The web API payload is unchanged. An old worker does not enforce the limit even after migration. No live migration or worker deployment has been performed for this November 1 patch.
+
+**Validation:** build shared code, then run `node --experimental-vm-modules --test packages/shared/test/*.test.mjs` (requires Node with TypeScript stripping, FFmpeg and ffprobe). Tests include real generated media, invalid media, duration boundaries, worker ordering and failure handling. Run the SQL suites against a disposable migrated database as well.
+
+## Pending security rollout — November 1
+
+All four November migrations and application changes remain local. Do not run a production migration or deploy until the coordinated rollout is authorized. Stop workers and pause uploads/billing checkout for the cutover, verify migration history, apply the four pending migrations in filename order, and deploy the web and worker together. Existing database backups and rollback planning should be prepared for the release; do not revert storage policies to reopen unrestricted uploads.
+
+### Upload trial bypass and quota enforcement
+
+The dashboard first calls authenticated `POST /api/uploads/reserve`, which uses the service-only `reserve_upload` RPC. The RPC serializes reservations on the profile row and checks current trial/subscription/BYOK access. Storage independently checks both current access and a live, owner-scoped reservation at insert time. No bearer upload token is issued. Direct unreserved uploads, expired reservations, wrong owners, spent trials, overwrites, and inserts into legacy source/voice buckets are denied. Owner reads/deletes remain available.
+
+Reservations expire after 15 minutes. Each reserves the full 500 MiB bucket maximum, regardless of browser-declared size. Initial limits: trial accounts have one 500 MiB input slot; subscription/BYOK accounts have four slots (2,000 MiB). Existing legacy input objects count conservatively toward quota. At most 20 reservations are permitted in a rolling 24-hour window. Job creation requires the matching reservation and completed Storage object; it checks entitlement again and atomically consumes a trial. Queues are capped at four pending/running and 20 new jobs per account per rolling day. HTTP 429 indicates capacity/rate limits. These are per-account controls; signup abuse and provider-level traffic controls still require production configuration review.
+
+`node scripts/cleanup-uploads.mjs` previews cleanup of expired reservation inputs older than seven days; `--apply` performs it in batches of 100. Schedule only after reviewing the dry run and retention policy during deployment. Pending/running jobs and completed outputs are preserved. `UPLOAD_RETENTION_DAYS` may change the input-retention window (minimum one day). Legacy inputs not associated with reservations require a separate reviewed inventory; the script does not delete them.
+
+### Worker and BYOK
+
+Use a Linux host with working unprivileged user namespaces and Bubblewrap. SaaS processing fails closed on unsupported platforms or root execution. Media subprocesses receive only runtime variables, isolated PID/network namespaces, read-only system/script mounts, and the current job directory. They cannot see database/encryption/provider credentials. Node provider stages receive only the provider keys required by that stage; dotenv reload and inherited key aliases are disabled for SaaS. BYOK requires a decryptable bundle with OpenRouter and Canto-Gen keys. Missing optional Sync/Fal keys skip lip sync; missing mandatory keys never fall back to platform credentials.
+
+The Dockerfile runs as non-root and excludes env files from its build context. `apps/worker/compose.security.yaml` supplies read-only root filesystem, dropped capabilities, 4 GiB memory, 2 CPUs, 256 PIDs, and a bounded 2 GiB temporary filesystem. Preserve those limits in alternative hosting. Provision the existing Python ASR dependencies and pre-download the chosen Whisper model into `/opt/whisper-models` before enabling jobs: isolated media has no network. The existing Dockerfile ASR installation is still optional and must be enabled for a complete pipeline.
+
+Run `node scripts/test-media-sandbox.mjs` as the worker user inside the target Linux image. It checks filesystem isolation, non-root identity, hidden credentials, distinct network/PID namespaces, and job writes. Docker was not running locally and WSL lacked Node/FFmpeg/Bubblewrap, so actual Linux isolation and the final image have not been verified in this Windows session. Do not disable the sandbox to work around host incompatibility.
+
+Stages have ten-minute deadlines and bounded captured output; a pipeline has at most 45 minutes and a shorter deadline if necessary to preserve ten minutes for uploads/status writes before lease expiry. Process-group cleanup also handles descendants holding pipes after their leader exits. Input and provider-media downloads stream with a 500 MiB bound and two-minute deadline; Storage/DB requests have one-minute deadlines. Outputs stream to Storage, stay within a fresh private job directory, and are capped at eight files of 500 MiB each with a 1 MiB manifest. The worker grants a 60-minute lease; progress/completion updates require the exact current unexpired lease and a matching running row. Lost/expired leases fail before paid processing; expired running jobs fail on the next poll and are never automatically recharged/retried. Operators must reconcile interrupted provider work before retrying.
+
+### Billing and dependency validation
+
+Stripe signatures remain mandatory. Webhooks resolve a unique server-owned customer mapping, allocate a database fencing version, read current Stripe subscriptions for the configured price, and atomically commit the result and user-bound processed event ID. Active access requires a subscription ID and expiry; known deleted customers reconcile to inactive. Duplicate events are harmless; stale handlers and failed writes return 503 for retry. Stripe requests are bounded to ten seconds with one network retry.
+
+Checkout saves mapping with service access and preserves existing entitlement status. The service-only `reserve_checkout` RPC locks the profile, rejects active local entitlement, and allocates/reuses a durable one-hour attempt. The exact attempt ID and expiry also determine the Stripe idempotency key and session expiry, preventing two payable sessions across an application clock boundary. If the first provider creation never succeeded and a retry has less than Stripe's minimum expiry remaining, the retry may fail temporarily until that hour expires. Do not rotate a potentially live session just to avoid this safe failure.
+
+Before applying the new unique customer index, inspect `subscriptions` for duplicate non-null `stripe_customer_id` values and reconcile their actual ownership. The migration intentionally fails rather than silently assigning ambiguous customer access. Client subscription writes and all billing RPCs remain forbidden to anon/authenticated roles.
+
+PostCSS is pinned/overridden to 8.5.32 while retaining Next.js 15.5.28. Use the declared npm 11.21.1 (`npx --yes npm@11.21.1 ci`) for reliable workspace override handling; the older local npm incorrectly reports override validity. A clean install resolves the patched version. Recheck `npm ls postcss`, audit and production build at release time. A successful audit is not evidence of application security or deployed state.
+
+The subagent review added BYOK payload/environment/real-dotenv regressions, billing event ownership and durable-checkout regressions, provider-download tests, and worker lease/directory/output checks. The POSIX descendant-process regression is skipped on Windows and must run on Linux with the sandbox smoke test.
+
+Integrated result: 33 application tests passed and one POSIX-only test was skipped; all five SQL suites passed in the isolated PostgreSQL runner. Workspace TypeScript checks and web/worker production builds passed. The refreshed production dependency audit reports zero known vulnerabilities; Next.js resolves PostCSS 8.5.32.
+
+Run all SQL suites against a disposable migrated Supabase database with `psql -v ON_ERROR_STOP=1 -f <suite.sql>`, or use `node scripts/test-security-sql.mjs` with `@electric-sql/pglite` available. The runner also accepts `--pglite-module /absolute/path/to/pglite/dist/index.js` and builds an isolated in-memory database; it never connects to production. Its Auth/Storage fixtures do not exercise the live Storage HTTP service or multi-session contention. Production upload, quota, billing retry, and full media smoke tests remain required after the coordinated rollout.
 
 **RLS note:** End users only see their own rows. The **service role** key bypasses RLS — use it only server-side (worker, Stripe webhook, and the jobs API's atomic RPC).
 

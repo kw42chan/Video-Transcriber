@@ -4,6 +4,8 @@ Sidecar is the single web dashboard for the Video Transcriber SaaS. The Next.js 
 
 ## Run the dashboard
 
+Security review and remediation priorities: [[Projects/video-transcriber/docs/security-review-2026-10-31|Security review — 2026-10-31]].
+
 The dashboard uses Next.js, Supabase Auth, Postgres row-level security, and private Supabase Storage. Configure `apps/web/.env.local` from [`apps/web/.env.example`](apps/web/.env.example). Keep the service-role key and billing or encryption secrets server-side; only the Supabase URL and anon key use the `NEXT_PUBLIC_` prefix.
 
 1. Install the root workspaces and start the Next.js dashboard:

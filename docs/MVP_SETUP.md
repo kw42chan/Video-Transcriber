@@ -59,7 +59,15 @@ The job-write hardening migration additionally revokes all client INSERT/UPDATE 
 
 In the dashboard → **Authentication → Providers**, enable **Email** with password (or adjust to magic link if you prefer later).
 
-For local web dev, add **http://localhost:3000** to **Authentication → URL configuration → Redirect URLs**.
+In **Authentication → URL configuration**:
+
+| Setting | Value |
+| --- | --- |
+| **Site URL** | Production app URL, e.g. `https://video-transcriber-sigma-pearl.vercel.app` (not `/auth/callback` — the app forwards `?code=` from `/` when needed) |
+| **Redirect URLs** | Production callback: `https://video-transcriber-sigma-pearl.vercel.app/auth/callback` |
+| | Local dev: `http://localhost:3000/auth/callback` |
+
+Signup sets `emailRedirectTo` to `${NEXT_PUBLIC_APP_URL}/auth/callback`. The `/auth/callback` route exchanges the PKCE `code` (or `token_hash` OTP links) for a session cookie and redirects to `/dashboard`.
 
 ---
 

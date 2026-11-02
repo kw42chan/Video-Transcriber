@@ -2,8 +2,13 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { createClient } from '@/lib/supabase/client';
+
+function authCallbackUrl() {
+  const base = process.env.NEXT_PUBLIC_APP_URL ?? (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000');
+  return `${base.replace(/\/$/, '')}/auth/callback`;
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -13,6 +18,13 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('error') === 'auth_callback') {
+      setError('Email confirmation failed or the link expired. Sign in or create a new account.');
+    }
+  }, []);
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
@@ -21,7 +33,11 @@ export default function LoginPage() {
       const supabase = createClient();
       const result = mode === 'login'
         ? await supabase.auth.signInWithPassword({ email, password })
-        : await supabase.auth.signUp({ email, password });
+        : await supabase.auth.signUp({
+            email,
+            password,
+            options: { emailRedirectTo: authCallbackUrl() },
+          });
       if (result.error) throw result.error;
       if (mode === 'signup' && !result.data.session) {
         setError('Check your email to confirm your account, then sign in.');

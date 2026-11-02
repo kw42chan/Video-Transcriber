@@ -50,15 +50,24 @@ function formatSize(bytes: number) {
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }
 
+type CreditSummary = {
+  availableSeconds: number;
+  monthlySeconds: number;
+  topupSeconds: number;
+  reservedSeconds: number;
+};
+
 export function DashboardWorkspace({
   jobs,
   canUpload,
   planLabel,
+  creditSummary,
   previewMode = false,
 }: {
   jobs: Job[];
   canUpload: boolean;
   planLabel: string;
+  creditSummary?: CreditSummary;
   previewMode?: boolean;
 }) {
   const [filter, setFilter] = useState<Filter>('all');
@@ -82,6 +91,14 @@ export function DashboardWorkspace({
           <div>English → Hong Kong Cantonese</div>
           <h1>Your projects</h1>
           <p className="subtitle">Track each source video and its dubbing status.</p>
+          {creditSummary ? (
+            <p className="subtitle" style={{ marginTop: '0.35rem' }}>
+              平台秒數：<strong>{Math.floor(creditSummary.availableSeconds)}</strong> 可用
+              {' '}(本月 {Math.floor(creditSummary.monthlySeconds)} · 加購 {Math.floor(creditSummary.topupSeconds)}
+              {creditSummary.reservedSeconds > 0 ? ` · 預留 ${Math.floor(creditSummary.reservedSeconds)}` : ''})
+              {' '}· <Link href="/settings/credits">帳戶詳情</Link>
+            </p>
+          ) : null}
         </div>
         {canUpload ? (
           <button className="primary-button" type="button" onClick={openProjectForm}>

@@ -83,6 +83,13 @@ values ('22222222-2222-4222-8222-222222222222', 'active', now() + interval '1 da
 update public.profiles set byok_enabled = true where id = '33333333-3333-4333-8333-333333333333';
 update public.profiles set trial_used = true where id = '44444444-4444-4444-8444-444444444444';
 
+select public.grant_topup_credits(
+  '22222222-2222-4222-8222-222222222222'::uuid,
+  120,
+  'test:sub-user-credits',
+  '{}'::jsonb
+);
+
 set local role service_role;
 do $$
 declare
@@ -104,8 +111,8 @@ begin
   jid := gen_random_uuid();
   begin
     perform public.create_job_with_trial(uid, jid,
-      'user-uploads/' || uid || '/' || jid || '/input.mp4', 'Expired', 'input.mp4');
-    raise exception 'Expired subscription unexpectedly allowed';
+      'user-uploads/' || uid || '/' || jid || '/input.mp4', 'No credits', 'input.mp4');
+    raise exception 'User without credits unexpectedly allowed';
   exception when insufficient_privilege then null;
   end;
 end;

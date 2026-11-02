@@ -30,6 +30,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           <div className="nav-group">Projects</div>
           <Link className="nav-item active" href="/dashboard"><span className="nav-glyph" aria-hidden="true">▤</span>Project library<span className="nav-count">{projectCount ?? 0}</span></Link>
           <Link className="nav-item" href="/pricing"><span className="nav-glyph" aria-hidden="true">◌</span>Plans</Link>
+          <Link className="nav-item" href="/settings/credits"><span className="nav-glyph" aria-hidden="true">⏱</span>Credits</Link>
           {profile?.byok_enabled ? <Link className="nav-item" href="/settings/byok"><span className="nav-glyph" aria-hidden="true">⌘</span>BYOK settings</Link> : null}
         </nav>
         <div className="sidebar-bottom"><span className="privacy-mark" aria-hidden="true">◈</span><span>Uploads and outputs stay private to your account.</span></div>

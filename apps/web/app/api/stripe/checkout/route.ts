@@ -1,19 +1,44 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { getStripe } from '@/lib/stripe';
+import {
+  legacyStripePriceId,
+  stripePriceIdForProduct,
+} from '@/lib/billing-stripe';
+import { isPlanKey, isTopupKey, type CheckoutProductKey } from '@video-transcriber/shared';
 
-export async function POST() {
+export async function POST(req: Request) {
   const stripe = getStripe();
   if (!stripe) {
     return NextResponse.json(
-      { error: 'Stripe not configured — set STRIPE_SECRET_KEY and STRIPE_PRICE_ID' },
+      { error: 'Stripe not configured — set STRIPE_SECRET_KEY and plan/top-up price env vars' },
       { status: 503 }
     );
   }
 
-  const priceId = process.env.STRIPE_PRICE_ID;
+  let product: CheckoutProductKey = 'pro';
+  try {
+    const body = await req.json();
+    if (typeof body?.product === 'string') {
+      product = body.product as CheckoutProductKey;
+    }
+  } catch {
+    /* empty body → legacy default pro */
+  }
+
+  if (!isPlanKey(product) && !isTopupKey(product)) {
+    return NextResponse.json({ error: 'Unknown product' }, { status: 400 });
+  }
+
+  let priceId = stripePriceIdForProduct(product);
+  if (!priceId && isPlanKey(product) && product === 'pro') {
+    priceId = legacyStripePriceId();
+  }
   if (!priceId) {
-    return NextResponse.json({ error: 'STRIPE_PRICE_ID missing' }, { status: 503 });
+    return NextResponse.json(
+      { error: `Stripe price not configured for ${product}` },
+      { status: 503 }
+    );
   }
 
   const supabase = await createClient();
@@ -44,13 +69,27 @@ export async function POST() {
     });
   }
 
+  const isSubscription = isPlanKey(product);
   const session = await stripe.checkout.sessions.create({
     customer: customerId,
-    mode: 'subscription',
+    mode: isSubscription ? 'subscription' : 'payment',
     line_items: [{ price: priceId, quantity: 1 }],
     success_url: `${appUrl}/dashboard?checkout=success`,
     cancel_url: `${appUrl}/pricing?checkout=cancel`,
-    metadata: { supabase_user_id: user.id },
+    metadata: {
+      supabase_user_id: user.id,
+      product_key: product,
+    },
+    ...(isSubscription
+      ? {
+          subscription_data: {
+            metadata: {
+              supabase_user_id: user.id,
+              plan_key: product,
+            },
+          },
+        }
+      : {}),
   });
 
   return NextResponse.json({ url: session.url });

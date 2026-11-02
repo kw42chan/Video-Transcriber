@@ -38,6 +38,8 @@ supabase db push
    - `supabase/migrations/202610310001_atomic_job_trial.sql`
    - `supabase/migrations/202610310002_lock_job_client_writes.sql`
    - `supabase/migrations/202610310003_lock_definer_functions.sql`
+   - `supabase/migrations/202611021200_credit_seconds_billing.sql`
+   - `supabase/migrations/202611021201_credit_definer_locks.sql`
 
 The Next.js dashboard uses `jobs` as its project list. These migrations create `profiles`, `jobs`, `subscriptions`, RLS policies, private storage buckets, and `claim_next_job()` for the worker. The final migration also retains the earlier Sidecar project, stage, voice-reference, and output tables; it extends the shared profile schema instead of creating a second `profiles` table.
 
@@ -85,14 +87,22 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 BYOK_ENCRYPTION_KEY=                    # openssl rand -base64 32
 ```
 
-Stripe (optional until billing is wired; for testing you can set `subscriptions.status = 'active'` manually):
+Stripe (optional until billing is wired; see §6 for Products/Prices):
 
 ```bash
 STRIPE_SECRET_KEY=
 STRIPE_WEBHOOK_SECRET=
-STRIPE_PRICE_ID=
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
+STRIPE_PRICE_STARTER=
+STRIPE_PRICE_PRO=
+STRIPE_PRICE_STUDIO=
+STRIPE_PRICE_TOPUP_100=
+STRIPE_PRICE_TOPUP_320=
+# Optional legacy alias for Pro if STRIPE_PRICE_PRO is unset
+STRIPE_PRICE_ID=
 ```
+
+Commercial seconds and HKD list prices live in `packages/shared/src/billing.ts` (Starter 120s / HK$148, Pro 360s / HK$388, Studio 900s / HK$788; top-ups 100s / HK$98 and 320s / HK$288). Stripe Dashboard Prices must match those amounts in HKD (smallest unit = cents).
 
 ### Worker (`apps/worker/.env` or host env)
 
@@ -139,21 +149,61 @@ The worker polls `claim_next_job()` using only `SUPABASE_SERVICE_ROLE_KEY` and r
 
 ---
 
-## 6. Stripe
+## 6. Stripe (credit-seconds billing)
 
-1. Create a **Product** + recurring **Price** in Stripe Dashboard.
-2. Set `STRIPE_PRICE_ID` to the Price id (`price_…`).
-3. Webhook endpoint: `https://<your-app>/api/stripe/webhook`
-   Events: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`.
-4. Copy signing secret → `STRIPE_WEBHOOK_SECRET`.
+Billing unit: **successful lipsync output seconds** (failed jobs release reserved seconds; no consume). Active subscription alone does **not** grant unlimited jobs — each period grants the plan’s second bucket via webhook.
 
-**Without Stripe keys:** the app should still build. For testing, activate a user manually:
+### Products & Prices (Darwin sets real `price_…` ids in Vercel — do not commit live ids)
+
+Create five **Products** in Stripe (HKD):
+
+| Kind | Name (suggested) | Amount | Env var |
+| --- | --- | --- | --- |
+| Subscription | Starter monthly | HK$148 / month | `STRIPE_PRICE_STARTER` |
+| Subscription | Pro monthly | HK$388 / month | `STRIPE_PRICE_PRO` |
+| Subscription | Studio monthly | HK$788 / month | `STRIPE_PRICE_STUDIO` |
+| One-time | Top-up 100s | HK$98 | `STRIPE_PRICE_TOPUP_100` |
+| One-time | Top-up 320s | HK$288 | `STRIPE_PRICE_TOPUP_320` |
+
+Legacy: `STRIPE_PRICE_ID` is still read as a fallback for **Pro** checkout only if `STRIPE_PRICE_PRO` is empty.
+
+### Webhook
+
+Endpoint: `https://<your-app>/api/stripe/webhook`
+
+Enable events:
+
+- `checkout.session.completed` — subscription checkout upserts `subscriptions`; **one-time top-ups grant seconds** (idempotent on session id).
+- `invoice.paid` — **grants monthly plan seconds** on initial and renewal invoices (idempotent on `invoice.id`). Unused monthly seconds from the prior period are expired before the new grant.
+- `customer.subscription.updated`, `customer.subscription.deleted` — sync status, `plan_key`, period end.
+
+Copy signing secret → `STRIPE_WEBHOOK_SECRET`.
+
+### Credit policy (encoded in DB RPCs)
+
+- **Monthly bucket** (`credit_accounts.monthly_seconds`): replaced on each paid subscription invoice; unused monthly seconds expire at renewal.
+- **Top-up bucket** (`credit_accounts.topup_seconds`): added on successful top-up checkout; **not** cleared on subscription renewal.
+- **Worker**: after ffprobe, `reserve_job_credits` holds seconds for platform jobs; success → `finalize_job_credits`, failure → `release_job_credits`.
+- **Trial / BYOK**: unchanged — trial does not debit; BYOK skips platform debits.
+
+**Without Stripe keys:** the app still builds. Grant test credits in SQL (service role / postgres):
 
 ```sql
--- In Supabase SQL editor (project gtwbeqhdsjcpavquengm)
-update public.subscriptions
-set status = 'active', current_period_end = now() + interval '30 days'
-where user_id = '<uuid-from-auth-users>';
+-- Top-up grant (local / staging)
+select public.grant_topup_credits(
+  '<user-uuid>'::uuid,
+  120,
+  'manual:test-grant-1',
+  '{"note":"local test"}'::jsonb
+);
+
+-- Simulate monthly renewal grant
+select public.grant_monthly_credits(
+  '<user-uuid>'::uuid,
+  360,
+  'manual:invoice:test-1',
+  '{"plan_key":"pro"}'::jsonb
+);
 ```
 
 ---
@@ -177,8 +227,9 @@ Then open **Settings → BYOK** in the app (after login). Saving keys calls **`P
 1. Register a test user → confirm a `profiles` row exists (trigger).
 2. Upload a short MP4 (≤60s for free trial) on **Dashboard** → job becomes `pending`.
 3. Start worker → job → `running` → `succeeded`; download outputs from Storage.
-4. Second job without subscription should hit paywall (unless BYOK/sub active).
-5. Optional: Stripe checkout → webhook → `subscriptions.status = active`.
+4. Second job without credits should hit paywall (unless BYOK or trial).
+5. Optional: Stripe subscription checkout → `invoice.paid` webhook → monthly seconds on `credit_accounts`; top-up checkout → top-up seconds.
+6. User with 0 credits and trial used cannot create a platform job; after `grant_topup_credits`, worker reserve/finalize debits seconds.
 
 ---
 
@@ -187,7 +238,7 @@ Then open **Settings → BYOK** in the app (after login). Saving keys calls **`P
 - [ ] Paste `anon` + `service_role` from https://supabase.com/dashboard/project/gtwbeqhdsjcpavquengm/settings/api
 - [x] Initial schema on `gtwbeqhdsjcpavquengm` (Darwin) — ensure `20261030133246_lock_byok_enabled_column.sql` is applied if not already
 - [ ] Fill Vercel + worker env (OpenRouter, Canto-Gen, Sync/Fal, `BYOK_ENCRYPTION_KEY`)
-- [ ] Stripe account: Product/Price, webhook, env vars
+- [ ] Stripe: 3 subscription + 2 one-time Prices, webhook events, all `STRIPE_PRICE_*` env vars on Vercel
 - [ ] Set `byok_enabled = true` on owner profile via SQL
 - [ ] Deploy worker with `ffmpeg` (+ ASR deps if using full pipeline)
 

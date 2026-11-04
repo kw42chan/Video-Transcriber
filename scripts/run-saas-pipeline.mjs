@@ -11,6 +11,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { ROOT, env, log, warn, ensureDir, hasEnv } from './lib/common.mjs';
+import { createChildEnv } from './lib/child-env.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -18,7 +19,7 @@ function run(cmd, args, opts = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
       cwd: ROOT,
-      env: { ...process.env, ...opts.env },
+      env: createChildEnv(process.env, opts.env),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -106,6 +107,7 @@ async function main() {
   log('Segment translate (HK 口語)…');
   await run(process.execPath, [path.join(ROOT, 'scripts/translate-segments.mjs'), workDir], {
     inherit: true,
+    env: { OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY },
   });
 
   const ref =
@@ -125,8 +127,14 @@ async function main() {
       ref,
       '--vendors',
       'canto-gen',
-    ],
-    { inherit: true }
+    ], {
+      inherit: true,
+      env: {
+        CANTO_GEN_API_KEY: process.env.CANTO_GEN_API_KEY,
+        CANTOGEN_API_KEY: process.env.CANTOGEN_API_KEY,
+        CANTO_GEN_VOICE: process.env.CANTO_GEN_VOICE,
+      },
+    }
   );
 
   log('Align + mux audio…');
@@ -166,7 +174,17 @@ async function main() {
           '--out',
           lipsyncOut,
         ],
-        { inherit: true }
+        {
+          inherit: true,
+          env: {
+            SYNCLABS_API_KEY: process.env.SYNCLABS_API_KEY,
+            SYNC_API_KEY: process.env.SYNC_API_KEY,
+            SYNCLABS_BASE_URL: process.env.SYNCLABS_BASE_URL,
+            SYNCLABS_MODEL: process.env.SYNCLABS_MODEL,
+            SYNCLABS_USD_PER_SEC: process.env.SYNCLABS_USD_PER_SEC,
+            SYNCLABS_PLAN_USD: process.env.SYNCLABS_PLAN_USD,
+          },
+        }
       );
       outputs.finalVideo = lipsyncOut;
     } else if (falKey) {
@@ -183,7 +201,13 @@ async function main() {
           '--out',
           lipsyncOut,
         ],
-        { inherit: true }
+        {
+          inherit: true,
+          env: {
+            FAL_KEY: process.env.FAL_KEY,
+            FAL_MUSETALK_USD_PER_SEC: process.env.FAL_MUSETALK_USD_PER_SEC,
+          },
+        }
       );
       outputs.finalVideo = lipsyncOut;
     } else {

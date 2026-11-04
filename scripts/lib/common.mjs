@@ -26,7 +26,7 @@ export function loadDotEnv(file = path.join(ROOT, '.env')) {
   }
 }
 
-loadDotEnv();
+if (process.env.DOTENV_DISABLED !== '1') loadDotEnv();
 
 export function env(name, fallback = undefined) {
   const v = process.env[name];

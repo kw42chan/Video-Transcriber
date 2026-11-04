@@ -11,14 +11,18 @@ export async function GET(request: Request) {
   const tokenHash = requestUrl.searchParams.get('token_hash');
   const type = requestUrl.searchParams.get('type');
   const nextPath = requestUrl.searchParams.get('next') ?? '/dashboard';
-  const safeNext = nextPath.startsWith('/') && !nextPath.startsWith('//') ? nextPath : '/dashboard';
+  const origin = new URL(appOrigin());
+  const requestedDestination = new URL(nextPath, origin);
+  const safeNext = requestedDestination.origin === origin.origin
+    ? requestedDestination
+    : new URL('/dashboard', origin);
 
   const supabase = await createClient();
 
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      return NextResponse.redirect(new URL(safeNext, appOrigin()));
+      return NextResponse.redirect(safeNext);
     }
   } else if (tokenHash && type) {
     const { error } = await supabase.auth.verifyOtp({
@@ -26,7 +30,7 @@ export async function GET(request: Request) {
       type: type as 'signup' | 'invite' | 'magiclink' | 'recovery' | 'email_change' | 'email',
     });
     if (!error) {
-      return NextResponse.redirect(new URL(safeNext, appOrigin()));
+      return NextResponse.redirect(safeNext);
     }
   }
 

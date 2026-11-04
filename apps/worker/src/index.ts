@@ -1,12 +1,21 @@
 import 'dotenv/config';
+import { execFile, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { promisify } from 'node:util';
 import { createClient } from '@supabase/supabase-js';
-import { decryptByokKeys, userUploadObjectPath, type EncryptedByokPayload } from '@video-transcriber/shared';
+import { createChildEnv } from '../../../scripts/lib/child-env.mjs';
+import { preflightJob } from './job-preflight.js';
+import {
+  decryptByokKeys,
+  parseMediaDuration,
+  userUploadObjectPath,
+  type EncryptedByokPayload,
+} from '@video-transcriber/shared';
 
 const ROOT = path.resolve(import.meta.dirname, '../../..');
 const POLL_MS = Number(process.env.WORKER_POLL_MS ?? '5000');
+const execFileAsync = promisify(execFile);
 
 function requireEnv(name: string): string {
   const v = process.env[name];
@@ -25,7 +34,7 @@ function runPipeline(workDir: string, envExtra: Record<string, string>): Promise
     const script = path.join(ROOT, 'scripts/run-saas-pipeline.mjs');
     const child = spawn(process.execPath, [script, '--work-dir', workDir], {
       cwd: ROOT,
-      env: { ...process.env, ...envExtra },
+      env: createChildEnv(process.env, { ...envExtra, DOTENV_DISABLED: '1' }),
       stdio: 'inherit',
     });
     child.on('close', (code) => {
@@ -71,6 +80,27 @@ async function downloadInput(inputPath: string, userId: string, dest: string): P
   fs.writeFileSync(dest, buf);
 }
 
+async function probeMediaDuration(videoPath: string): Promise<number> {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of ['PATH', 'HOME', 'TMPDIR', 'TMP', 'TEMP', 'SYSTEMROOT', 'WINDIR']) {
+    const value = process.env[key];
+    if (value !== undefined) env[key] = value;
+  }
+
+  const { stdout } = await execFileAsync('ffprobe', [
+    '-v', 'error',
+    '-show_entries', 'format=duration',
+    '-of', 'csv=p=0',
+    videoPath,
+  ], {
+    env,
+    timeout: 30_000,
+    maxBuffer: 64 * 1024,
+    windowsHide: true,
+  });
+  return parseMediaDuration(stdout);
+}
+
 async function uploadOutputs(
   userId: string,
   jobId: string,
@@ -108,13 +138,32 @@ async function processJob(job: {
   id: string;
   user_id: string;
   input_path: string;
+  duration_limit_seconds: number;
 }): Promise<void> {
   const workDir = path.join(process.env.WORK_DIR ?? '/tmp/vt-jobs', job.id);
-  fs.mkdirSync(workDir, { recursive: true });
+  let preflightFinalized = false;
 
   try {
-    const keyEnv = await resolveKeysForUser(job.user_id);
+    fs.mkdirSync(workDir, { recursive: true });
     await downloadInput(job.input_path, job.user_id, path.join(workDir, 'video.mp4'));
+
+    const preflightAccepted = await preflightJob({
+      jobId: job.id,
+      durationLimitSeconds: job.duration_limit_seconds,
+      probe: () => probeMediaDuration(path.join(workDir, 'video.mp4')),
+      finalize: async (jobId, durationSeconds) => {
+        const { data, error } = await supabase.rpc('complete_job_preflight', {
+          p_job_id: jobId,
+          p_duration_seconds: durationSeconds,
+        });
+        if (error) throw new Error(`Duration preflight failed: ${error.message}`);
+        preflightFinalized = true;
+        return data === true;
+      },
+    });
+    if (!preflightAccepted) return;
+
+    const keyEnv = await resolveKeysForUser(job.user_id);
     await runPipeline(workDir, keyEnv);
 
     const manifestPath = path.join(workDir, 'pipeline_result.json');
@@ -130,6 +179,14 @@ async function processJob(job: {
       .eq('id', job.id);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    if (!preflightFinalized) {
+      const { error: preflightError } = await supabase.rpc('complete_job_preflight', {
+        p_job_id: job.id,
+        p_duration_seconds: null,
+      });
+      if (preflightError) console.error('[worker] could not release preflight reservation', job.id, preflightError.message);
+      else preflightFinalized = true;
+    }
     await supabase
       .from('jobs')
       .update({ status: 'failed', error: message.slice(0, 4000) })

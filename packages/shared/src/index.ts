@@ -7,6 +7,7 @@ export {
 } from './byok.js';
 
 export { jobInputPath, userUploadObjectPath } from './upload-path.js';
+export { isMediaDurationWithinLimit, parseMediaDuration } from './media-duration.js';
 
 export const JOB_STATUSES = ['pending', 'running', 'succeeded', 'failed'] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
